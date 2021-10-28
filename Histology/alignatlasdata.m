@@ -15,8 +15,6 @@ function [Depth2AreaPerChannel, Depth2AreaPerUnit] = alignatlasdata(histinfo,All
 % coordinates of the probe (e.g. the npy file from Brain Globe Output,
 % using readNPY(fullfile(histofile(1).folder,strrep(histofile(1).name,'.csv','.npy')))
 
-
-
 %% Use templatePositionsAmplitudes from the Spikes toolbox
 [spikeAmps, spikeDepths, templateYpos, tempAmps, tempsUnW, tempDur, tempPeakWF] = ...
     templatePositionsAmplitudes(sp.temps, sp.winv, sp.ycoords, sp.spikeTemplates, sp.tempScalingAmps);
@@ -27,9 +25,13 @@ spikeTimes = sp.st;
 try
     cluster_id = clusinfo.id;
 catch
-    cluster_id = clusinfo.cluster_id;
+    cluster_id = clusinfo.cluster_id; %No manual curation?
 end
-KSLabel = clusinfo.KSLabel;
+try
+    KSLabel = clusinfo.KSLabel;
+catch
+    KSLabel = clusinfo.group; %No manual curation?
+end
 depth = clusinfo.depth;
 channel = clusinfo.ch;
 Good_ID = find(sum(ismember(KSLabel,'good'),2)==4);
@@ -85,6 +87,9 @@ if nargin>7
     plot3(X_end(:,1),X_end(:,2),X_end(:,3),'-r','LineWidth',3) % best fit line
     hold on
     plot3(trackcoordinates(:,1),trackcoordinates(:,2),trackcoordinates(:,3),'.k','MarkerSize',13)           % simulated noisy data
+    
+    % Distance line:
+    D = vecnorm(trackcoordinates(1,:)-trackcoordinates(end,:));
 end
 
 %% Open gui figure
@@ -150,6 +155,14 @@ set(h,'Alphadata',~isnan(mua_corr))
 set(gca,'Color',[0.5 0.5 0.5])
 ylim([startpoint,endpoint]);
 xlim([startpoint,endpoint]);
+DProbe = endpoint-startpoint;
+
+if coordinateflag
+    ScaleBrainToProbe = (D-DProbe)./DProbe;
+    disp(['Distance between bottom and top channel: ' num2str(round(DProbe)) 'micron'])
+    disp(['Penetration into brain: ' num2str(round(D)) 'micron'])
+    disp(['Only take ' num2str(round((1-ScaleBrainToProbe)*100)) '% deepest areas along track'])
+end
 set(multiunit_ax,'YDir','normal');
 title('MUA correlation');
 xlabel(multiunit_ax,'Multiunit depth');
@@ -159,14 +172,18 @@ while ~flag
     if istable(histinfo)&& any(histinfo.Position)
         histinfo.RegionAcronym(ismember(histinfo.RegionAcronym,'Not found in brain')) = {'root'};
         if ~surfacefirst
-            areapoints = linspace(startpoint,endpoint,length(histinfo.Position));
             if coordinateflag
+                areapoints = linspace(startpoint,endpoint+(D-DProbe),length(histinfo.Position));
                 trackcoordinates = [linspace(X_end(1,1),X_end(2,1),length(areapoints));linspace(X_end(1,2),X_end(2,2),length(areapoints));linspace(X_end(1,3),X_end(2,3),length(areapoints))]';
+            else
+                areapoints = linspace(startpoint,endpoint,length(histinfo.Position));
             end
         else
-            areapoints = linspace(endpoint,startpoint,length(histinfo.Position));
             if coordinateflag
+                areapoints = linspace(endpoint+(D-DProbe),startpoint,length(histinfo.Position));
                 trackcoordinates = [linspace(X_end(2,1),X_end(1,1),length(areapoints));linspace(X_end(2,2),X_end(1,2),length(areapoints));linspace(X_end(2,3),X_end(1,3),length(areapoints))]';
+            else
+                areapoints = linspace(endpoint,startpoint,length(histinfo.Position));
             end
         end
         [UniqueAreas,IA,IC] = unique((histinfo.RegionAcronym),'stable');
@@ -194,9 +211,7 @@ while ~flag
         histinfo.RegionAcronym(ismember(histinfo.RegionAcronym,'void')) = {'root'};
         
         [UniqueAreas,IA,IC] = unique(fliplr(histinfo.RegionAcronym),'stable');
-      
-            
-        
+ 
     end
     UniqueAreas = lower(UniqueAreas); % case insensitive
     switchpoints = [1; find(diff(IC)~=0)+1; length(IC)]; %Find points where region changes
@@ -214,9 +229,11 @@ while ~flag
     end
     patchobj(i) = patch([0 1 1 0],[areapoints(switchpoints(i)) areapoints(switchpoints(i)) areapoints(end) areapoints(end)],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{IC(switchpoints(i))}))));
     textobj(i) = text(0.5,nanmean([areapoints(switchpoints(i)) areapoints(end)]),UniqueAreas{IC(switchpoints(i))},'HorizontalAlignment','center');
-    ylim([startpoint,endpoint]);
+    ylim([startpoint,endpoint]);    
+    
     title({'Probe areas','(ws keys to move, a to add ref line, d to delete ref line, f for flip probe ori, 123 for factor)','(q: save & quit, r: reset)'});
     if coordinateflag
+      
         
         yyaxis right
         ylim([startpoint,endpoint]);
@@ -250,8 +267,9 @@ while ~flag
     end
     newareapoints = areapoints; %new s
     oristartpoint = startpoint;
-    oriendpoint = endpoint;
+    oriendpoint = endpoint;   
     stepsize = unique(round(abs(diff(areapoints))));
+    
     disp('ws keys to move, a to add reference line, d to delete ref line, f for flip probe orientation, 123 for speed of movement, q: save & quit, r: reset');
     okay = 0;
     key = '';
