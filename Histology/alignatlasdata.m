@@ -8,6 +8,7 @@ function [Depth2AreaPerChannel, Depth2AreaPerUnit] = alignatlasdata(histinfo,All
 % AllenCCFPath: Path to AllenCCF (Github repository)
 % Output from sp = loadKSdir(myKsDir); (Nick Steinmetz: https://github.com/cortex-lab/spikes)
 % cluster information (KS/Phy output): channel (ID per cluster) and depth (also per Cluster)
+
 %% Optional inputs: 
 % surfacefirst = 1: position with lowest index is the surface of the brain. Default zero: Position with heighest index deeper in the brain
 % treeversion: which Allen Brain Tree structure to use? (default 2, = 2017; 1 = older)
@@ -15,6 +16,14 @@ function [Depth2AreaPerChannel, Depth2AreaPerUnit] = alignatlasdata(histinfo,All
 % coordinates of the probe (e.g. the npy file from Brain Globe Output,
 % using readNPY(fullfile(histofile(1).folder,strrep(histofile(1).name,'.csv','.npy')))
 
+%% Outputs:
+% Depth2AreaPerChannel: cell with Depth, Areaname (as defined by Allen Brain), Color (as defined by Allen Brain), and (optionally) actual
+% coordinates for every channel
+% Depth2AreaPerUnit: Table with Cluster_ID,Depth,Areaname (as defined by
+% Allen Brain),Color (as defined by Allen Brain), Coordinates (as defined
+% by Allen Brain) for every unit. Be aware that Cluster_ID change with
+% merging/splitting, so this output is no longer valid after changes are
+% made with e.g. phy --> re-run alignatlasdata
 %% Use templatePositionsAmplitudes from the Spikes toolbox
 [spikeAmps, spikeDepths, templateYpos, tempAmps, tempsUnW, tempDur, tempPeakWF] = ...
     templatePositionsAmplitudes(sp.temps, sp.winv, sp.ycoords, sp.spikeTemplates, sp.tempScalingAmps);
