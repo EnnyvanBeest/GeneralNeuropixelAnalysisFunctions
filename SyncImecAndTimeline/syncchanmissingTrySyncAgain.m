@@ -4,7 +4,11 @@
 
 % Aproximate start of session relative to ephys
 %             fullfile(SaveDir,MiceOpt{midx},thisdate,thisses,'SpikeData.mat')
+
 allsess = dir(fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate,thisprobe));
+if isempty(allsess)
+    allsess = dir(fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate));
+end
 sesnrs = (cellfun(@(X) str2num(X),{allsess(:).name},'UniformOutput',0));
 sesnrs(cellfun(@isempty,sesnrs))={[1000]};
 [~,idx] = sort([sesnrs{:}]);

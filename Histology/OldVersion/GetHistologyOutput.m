@@ -7,6 +7,7 @@ end
 if exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat')) && ~NewHistologyNeeded
     tmpfile = load(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat'));
     try
+        Depth2AreaPerChannel = tmpfile.Depth2AreaPerChannel;
         Depth2AreaPerUnit = tmpfile.Depth2AreaPerUnit;
         histodone=1;
         disp('Data already aligned to histology')
@@ -20,32 +21,39 @@ if ~histodone %Just in case it's not done yet
     if isempty(histofile)
         histofile = dir(fullfile(myKsDir,'*.csv'));
         if length(histofile)>1
-            disp('Detecting multiple files... npix2 probe?')
+            keyboard
         end
         if isempty(histofile)
+            
             histofile = dir(fullfile(myKsDir,'probe_ccf.mat'));
+            
+            
             if isempty(histofile)
                 disp('No channel locations known yet, do histology first')
                 histoflag=0;
-            else                
+            else
+                
                 % alignment with petersen probe output
                 histoflag = 1;
                 histinfo =load(fullfile(histofile(1).folder,histofile(1).name));
                 fullfile(fullfile(histofile(1).folder,histofile(1).name))
 
                 % Align ephys data with probe
-                Depth2AreaPerUnit  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,1,1,2);
+                [Depth2AreaPerChannel, Depth2AreaPerUnit]  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,1,1,2);
                 
             end
         else % Automatic alignment with brain globe output
             histoflag = 1;
-            histinfo = arrayfun(@(X) readtable(fullfile(histofile(X).folder,histofile(X).name),'ReadVariableNames',1,'Delimiter',','),1:length(histofile),'UniformOutput',0);
+            histinfo =readtable(fullfile(histofile(1).folder,histofile(1).name),'ReadVariableNames',1,'Delimiter',',');
             
             % If available; find actual depth in brain
             % corresponding to this:
-            trackcoordinates = arrayfun(@(X) readNPY(fullfile(histofile(X).folder,strrep(histofile(X).name,'.csv','.npy'))),1:length(histofile),'UniformOutput',0);
+            trackcoordinates = readNPY(fullfile(histofile(1).folder,strrep(histofile(1).name,'.csv','.npy')));
+            fullfile(fullfile(histofile(1).folder,histofile(1).name))
             % Align ephys data with probe
-            Depth2AreaPerUnit  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,0,1,2,trackcoordinates);   
+            [Depth2AreaPerChannel, Depth2AreaPerUnit]  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,1,0,2,trackcoordinates);
+            
+            
         end
     else
         histoflag=1;
@@ -53,11 +61,12 @@ if ~histodone %Just in case it's not done yet
         histinfo = jsondecode(histinfo);% Decode json text
         fullfile(fullfile(histofile(1).folder,histofile(1).name))
 
+        
         % Align ephys data with probe
-        Depth2AreaPerUnit  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,1,0,1);
+        [Depth2AreaPerChannel, Depth2AreaPerUnit]  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,1,0,1);
     end
 end
 if histoflag
 saveas(gcf,fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.fig'))
-save(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat'),'Depth2AreaPerUnit')
+save(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat'),'Depth2AreaPerChannel','Depth2AreaPerUnit')
 end

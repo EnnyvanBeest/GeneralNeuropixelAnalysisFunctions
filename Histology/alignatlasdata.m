@@ -1,8 +1,16 @@
-function [Depth2AreaPerChannel, Depth2AreaPerUnit] = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,goodonly,surfacefirst,treeversion,trackcoordinates)
+function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,goodonly,surfacefirst,treeversion,trackcoordinates)
 % Enny van Beest, based on AP_histology from AJPeters & IBLAPP from Mayo
 % Faulkner
+%% Important
+% This tool is purely to align ephys-data (functional) to histology data,
+% as obtained by other methods. Preferably brainglobe (https://docs.brainglobe.info/) , or
+% alternatively allenccf (https://github.com/cortex-lab/allenCCF) 
+% histinfo needs to come at a fine enough scale to include ALL areas, it
+% will not interpollate in the Allen Brain and assume additional areas. 
+
 %% Inputs:
-% histology info: probe track coordinates. Either output from
+% histology info: probe track coordinates. If histinfo is a cell, every
+% cell is expected to be from a shank of a multiple-shank probe
 % AP_Histology pipeline (probe_ccf) or Brain Globe output (CSV file), 100a
 % equally spaced points along probe track.
 % AllenCCFPath: Path to AllenCCF (Github repository)
@@ -17,13 +25,20 @@ function [Depth2AreaPerChannel, Depth2AreaPerUnit] = alignatlasdata(histinfo,All
 % using readNPY(fullfile(histofile(1).folder,strrep(histofile(1).name,'.csv','.npy')))
 
 %% Outputs:
-% Depth2AreaPerChannel: cell with Depth, Areaname (as defined by Allen Brain), Color (as defined by Allen Brain), and (optionally) actual
-% coordinates for every channel
 % Depth2AreaPerUnit: Table with Cluster_ID,Depth,Areaname (as defined by
 % Allen Brain),Color (as defined by Allen Brain), Coordinates (as defined
 % by Allen Brain) for every unit. Be aware that Cluster_ID change with
 % merging/splitting, so this output is no longer valid after changes are
 % made with e.g. phy --> re-run alignatlasdata
+
+%% Check inputs
+if ~iscell(histinfo)
+    histinfo{1} = histinfo;
+end
+if nargin>7 && ~iscell(trackcoordinates)
+    trackcoordinates{1} = trackcoordinates;
+end
+
 %% Use templatePositionsAmplitudes from the Spikes toolbox
 [spikeAmps, spikeDepths, templateYpos, tempAmps, tempsUnW, tempDur, tempPeakWF] = ...
     templatePositionsAmplitudes(sp.temps, sp.winv, sp.ycoords, sp.spikeTemplates, sp.tempScalingAmps);
@@ -41,9 +56,19 @@ try
 catch
     KSLabel = clusinfo.group; %No manual curation?
 end
+try
+    ShankID = clusinfo.ShankID;
+catch
+    ShankID = ones(1,length(KSLabel));
+end
+nshanks = length(unique(ShankID));  
+spikeShank = nan(length(spikeCluster),1);
+for shid = 1:nshanks
+    spikeShank(ismember(spikeCluster,cluster_id(ShankID==shid))) = shid;
+end
 depth = clusinfo.depth;
 channel = clusinfo.ch;
-Good_ID = find(sum(ismember(KSLabel,'good'),2)==4);
+Good_ID = ismember(cellstr(KSLabel),'good'); %Identify good clusters
 
 %% Select only good units to clean up MUA
 if nargin>4 && goodonly
@@ -75,68 +100,49 @@ id = tmp.id;
 coordinateflag =0;
 if nargin>7
     coordinateflag = 1;
-    X_ave=mean(trackcoordinates,1);            % mean; line of best fit will pass through this point
-    dX=bsxfun(@minus,trackcoordinates,X_ave);  % residuals
-    C=(dX'*dX)/(size(trackcoordinates,1)-1);           % variance-covariance matrix of X
-    [R,D]=svd(C,0);             % singular value decomposition of C; C=R*D*R'
-    
-    D=diag(D);
-    R2=D(1)/sum(D);
-    disp(['Linear fit R2 = ' num2str(round(R2*1000)/10) '%'])
-    
-    x=dX*R(:,1);    % project residuals on R(:,1)
-    x_min=min(x);
-    x_max=max(x);
-    dx=x_max-x_min;
-    Xa=(x_min-0.05*dx)*R(:,1)' + X_ave;
-    Xb=(x_max+0.05*dx)*R(:,1)' + X_ave;
-    X_end=[Xa;Xb];
-    
     figure
-    plot3(X_end(:,1),X_end(:,2),X_end(:,3),'-r','LineWidth',3) % best fit line
-    hold on
-    plot3(trackcoordinates(:,1),trackcoordinates(:,2),trackcoordinates(:,3),'.k','MarkerSize',13)           % simulated noisy data
-    
-    % Distance line:
-    D = vecnorm(trackcoordinates(1,:)-trackcoordinates(end,:));
+    cols = lines(length(trackcoordinates));
+    DistProbe = nan(1,length(trackcoordinates));
+    for trid = 1:length(trackcoordinates)
+        X_ave=mean(trackcoordinates{trid},1);            % mean; line of best fit will pass through this point
+        dX=bsxfun(@minus,trackcoordinates{trid},X_ave);  % residuals
+        C=(dX'*dX)/(size(trackcoordinates{trid},1)-1);           % variance-covariance matrix of X
+        [R,DProbe]=svd(C,0);             % singular value decomposition of C; C=R*D*R'
+        
+        DProbe=diag(DProbe);
+        R2=DProbe(1)/sum(DProbe);
+        disp(['Linear fit R2 = ' num2str(round(R2*1000)/10) '%'])
+        
+        x=dX*R(:,1);    % project residuals on R(:,1)
+        x_min=min(x);
+        x_max=max(x);
+        dx=x_max-x_min;
+        Xa=(x_min-0.05*dx)*R(:,1)' + X_ave;
+        Xb=(x_max+0.05*dx)*R(:,1)' + X_ave;
+        X_end=[Xa;Xb];
+        Fits{trid} = X_end;
+        h(trid)=plot3(X_end(:,3),X_end(:,1),X_end(:,2),'-','color',cols(trid,:),'LineWidth',3); % best fit line;
+        hold on
+        plot3(trackcoordinates{trid}(:,3),trackcoordinates{trid}(:,1),trackcoordinates{trid}(:,2),'.k','MarkerSize',13)           % simulated noisy data
+        
+        % Distance line:
+        DistProbe(trid) = norm(trackcoordinates{trid}(1,:)-trackcoordinates{trid}(end,:));
+        hold on
+    end
+    legend([h(:)],arrayfun(@(X) ['Shank ' num2str(X)],1:length(trackcoordinates),'UniformOutput',0))
+    title('These Shanks should be in the right order, if not order histinfo accordingly')
 end
-
+DProbe = nanmax(DistProbe);
 %% Open gui figure
 gui_fig = figure('color','w');
-flag =0; %to keep track of finishing this loop
-
-%     if exist('gui_fig')
-%         delete(gui_fig)
-%     end
-% subplot(3,5,[1:2,6:7,11:12])
-% plotDriftmap(spikeTimesCorrected, spikeAmps, spikeDepths);
-% title('DriftMap')
+flag = 0; %to keep track of finishing this loop
 depthunique = unique(spikeDepths(spikeID));
 
-% Calculate number of spikes across depth
-nrspikesperdepth = cell2mat(arrayfun(@(X) sum(spikeTimes(spikeDepths==X & spikeID==1)),depthunique,'UniformOutput',0));
-thresh = quantile(nrspikesperdepth,0.01);
-
-%Find 'gaps' of low activity:
-gaps = depthunique(find(nrspikesperdepth<thresh));
+% 
+% %Find 'gaps' of low activity:
+% gaps = depthunique(find(nrspikesperdepth<thresh));
 endpoint = max(depthunique);
 startpoint = min(depthunique);
-
-subplot(3,5,[1,6,11])
-% Calculate number of spikes across depth
-avgAmplitude = cell2mat(arrayfun(@(X) nanmean(spikeAmps(spikeDepths==X & spikeID==1)),depthunique,'UniformOutput',0));
-box off
-plot(smooth(avgAmplitude),depthunique,'-')
-title('avg Amplitude')
-ylim([startpoint,endpoint]);
-
-box off
-subplot(3,5,[2,7,12])
-plot(smooth(nrspikesperdepth),depthunique,'-'); hold on;
-title('Nr Spikes')
-line([thresh thresh],get(gca,'ylim'),'color',[1 0 0],'LineWidth',2)
-ylim([startpoint,endpoint]);
-hold off
 
 %% Get multiunit correlation - Copied from Petersen github
 n_corr_groups = 40;
@@ -149,54 +155,80 @@ spike_binning = 0.01; % seconds
 corr_edges = nanmin(spikeTimes(spikeID==1)):spike_binning:nanmax(spikeTimes(spikeID==1));
 corr_centers = corr_edges(1:end-1) + diff(corr_edges);
 
-binned_spikes_depth = zeros(length(unique_depths),length(corr_edges)-1);
-for curr_depth = 1:length(unique_depths)
-    binned_spikes_depth(curr_depth,:) = histcounts(spikeTimes(depth_group == unique_depths(curr_depth) & spikeID==1), corr_edges);
+binned_spikes_depth = zeros(length(unique_depths),length(corr_edges)-1,nshanks);
+mua_corr = cell(1,nshanks);
+for shid = 1:nshanks
+    parfor curr_depth = 1:length(unique_depths)
+        binned_spikes_depth(curr_depth,:,shid) = histcounts(spikeTimes(depth_group == unique_depths(curr_depth) & spikeID==1 & spikeShank==shid), corr_edges);
+    end
+    mua_corr{shid} = corrcoef(binned_spikes_depth(:,:,shid)');
 end
-
-mua_corr = corrcoef(binned_spikes_depth');
+mua_corr = cat(3,mua_corr{:});
+mua_corr = reshape(mua_corr,size(mua_corr,1),[]);
 limup = quantile(mua_corr(:),0.8);
 % Plot multiunit correlation
-multiunit_ax = subplot(3,5,[3:4,8:9,13:14]);
-h=imagesc(depth_group_centers,depth_group_centers,mua_corr);
+multiunit_ax = subplot(3,7,[1:3,8:10,15:17]);
+h=imagesc(1:length(depth_group_centers)*nshanks,depth_group_centers,mua_corr);
 caxis([0,max(mua_corr(mua_corr~=1))]); colormap(hot);
 set(h,'Alphadata',~isnan(mua_corr))
 set(gca,'Color',[0.5 0.5 0.5])
+hold on
+for shid = 1:nshanks
+    line([size(mua_corr,1)*shid size(mua_corr,1)*shid],[startpoint endpoint],'color',[0.4 0.6 0],'LineStyle','--','LineWidth',3)
+end
 ylim([startpoint,endpoint]);
-xlim([startpoint,endpoint]);
-DProbe = endpoint-startpoint;
+xlim([1,length(depth_group_centers)*nshanks]);
+set(gca,'XTickLabel','')
+DChannels = endpoint-startpoint;
 
 if coordinateflag
-    ScaleBrainToProbe = (D-DProbe)./DProbe;
-    disp(['Distance between bottom and top channel: ' num2str(round(DProbe)) 'micron'])
-    disp(['Penetration into brain: ' num2str(round(D)) 'micron'])
-    disp(['Only take ' num2str(round((1-ScaleBrainToProbe)*100)) '% deepest areas along track'])
+    ScaleChannelsToProbe = endpoint./DProbe;
+    disp(['Distance between 0 and top channel: ' num2str(round(endpoint)) 'micron'])
+    disp(['Penetration into brain: ' num2str(round(DProbe)) 'micron'])
+    disp(['Take ' num2str(round((ScaleChannelsToProbe)*100)) '% deepest areas along track'])
 end
 set(multiunit_ax,'YDir','normal');
 title('MUA correlation');
-xlabel(multiunit_ax,'Multiunit depth');
+xlabel(multiunit_ax,'Multiunit depth X Probe');
+ylabel(multiunit_ax,'Multiunit depth');
+
+%% Put histinfo in new shap with all shanks below each other
+for shid = 1:length(histinfo)
+    npoints = size(histinfo{shid},1);
+    histinfo{shid}.shank = repmat(shid,npoints,1);
+    if shid==1
+    histinfonew = histinfo{shid};
+    else
+        histinfonew = cat(1,histinfonew,histinfo{shid});
+    end
+end
+histinfo = histinfonew;
+clear histinfonew
 
 while ~flag
     %Now divide position of probe along this track
     if istable(histinfo)&& any(histinfo.Position)
         histinfo.RegionAcronym(ismember(histinfo.RegionAcronym,'Not found in brain')) = {'root'};
-        if ~surfacefirst
-            if coordinateflag
-                areapoints = linspace(startpoint,endpoint+(D-DProbe),length(histinfo.Position));
-                trackcoordinates = [linspace(X_end(1,1),X_end(2,1),length(areapoints));linspace(X_end(1,2),X_end(2,2),length(areapoints));linspace(X_end(1,3),X_end(2,3),length(areapoints))]';
+        for shid = 1:nshanks
+            if ~surfacefirst
+                if coordinateflag
+                    areapoints{shid} = linspace(0-(DProbe-endpoint),endpoint,sum(histinfo.shank==shid));
+                    trackcoordinates{shid} = [linspace(Fits{shid}(1,1),Fits{shid}(2,1),length( areapoints{shid}));linspace(Fits{shid}(1,2),Fits{shid}(2,2),length( areapoints{shid}));linspace(Fits{shid}(1,3),Fits{shid}(2,3),length( areapoints{shid}))]';
+                else
+                    areapoints{shid} = linspace(0-(DProbe-endpoint),endpoint,sum(histinfo.shank==shid));
+                end
             else
-                areapoints = linspace(startpoint,endpoint,length(histinfo.Position));
+                if coordinateflag
+                    areapoints{shid} = linspace(endpoint,0-(DProbe-endpoint),sum(histinfo.shank==shid));
+                    trackcoordinates{shid} = [linspace(Fits{shid}(2,1),Fits{shid}(1,1),length( areapoints{shid}));linspace(Fits{shid}(2,2),Fits{shid}(1,2),length( areapoints{shid}));linspace(Fits{shid}(2,3),Fits{shid}(1,3),length( areapoints{shid}))]';
+                else
+                    areapoints{shid} = linspace(endpoint,0-(DProbe-endpoint),sum(histinfo.shank==shid));
+                end
             end
-        else
-            if coordinateflag
-                areapoints = linspace(endpoint+(D-DProbe),startpoint,length(histinfo.Position));
-                trackcoordinates = [linspace(X_end(2,1),X_end(1,1),length(areapoints));linspace(X_end(2,2),X_end(1,2),length(areapoints));linspace(X_end(2,3),X_end(1,3),length(areapoints))]';
-            else
-                areapoints = linspace(endpoint,startpoint,length(histinfo.Position));
-            end
+            [UniqueAreas{shid},IA{shid},IC{shid}] = unique((histinfo.RegionAcronym(histinfo.shank==shid)),'stable');
         end
-        [UniqueAreas,IA,IC] = unique((histinfo.RegionAcronym),'stable');
     elseif isstruct(histinfo)&& isfield(histinfo,'probe_ccf')
+        Error('Not yet adapted for multiple shanks')
         if ~surfacefirst
             areapoints = (linspace(startpoint,endpoint,length(histinfo.probe_ccf.trajectory_coords)));
         else
@@ -206,6 +238,7 @@ while ~flag
         [UniqueAreas,IA,IC] = unique(histinfo.probe_ccf.trajectory_acronyms,'stable');
         histinfo.RegionAcronym = histinfo.probe_ccf.trajectory_acronyms;
     else
+        Error('Not yet adapted for multiple shanks')
         areapoints = nan(1,max(channel)+1);
         histinfo.RegionAcronym  = cell(1,max(channel)+1);
         for chid = 1:max(channel)+1
@@ -219,35 +252,73 @@ while ~flag
         end
         histinfo.RegionAcronym(ismember(histinfo.RegionAcronym,'void')) = {'root'};
         
-        [UniqueAreas,IA,IC] = unique(fliplr(histinfo.RegionAcronym),'stable');
- 
+        [UniqueAreas,IA,IC] = unique(fliplr(histinfo.RegionAcronym),'stable'); 
     end
-    UniqueAreas = lower(UniqueAreas); % case insensitive
-    switchpoints = [1; find(diff(IC)~=0)+1; length(IC)]; %Find points where region changes
-    AllAreas = histinfo.RegionAcronym(switchpoints);
-    
+    UniqueAreas = cellfun(@(X) lower(X),UniqueAreas,'UniformOutput',0); % case insensitive
+    switchpoints = cellfun(@(X) [1; find(diff(X)~=0)+1],IC,'UniformOutput',0); %Find points where region changes
+    %     switchpoints = cellfun(@(X) [1; find(diff(X)~=0)+1; length(X)],IC,'UniformOutput',0); %Find points where region changes
+    AllAreas = cell(1,nshanks);
+    for shid = 1:nshanks
+        AllAreas{shid} = histinfo.RegionAcronym(switchpoints{shid}+(npoints*(shid-1)));
+    end
+
     if exist('probe_areas_ax')
         delete(probe_areas_ax)
     end
-    probe_areas_ax  = subplot(3,5,[5,10,15]);
+    % To see entire probe as reference
+    Entireprobe_areas_ax  = subplot(3,7,[6,7,13,14,20,21]);
+    yyaxis right
+    
+    oripatchobj = gobjects;
+    oritextobj = gobjects;
+    for shid=1:nshanks
+        for i=2:length(switchpoints{shid})
+            oripatchobj(shid,i-1) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))}))));
+            oritextobj(shid,i-1) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))},'HorizontalAlignment','center');
+        end
+        oripatchobj(shid,i) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end)) areapoints{shid}(switchpoints{shid}(end))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))}))));
+        oritextobj(shid,i) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))},'HorizontalAlignment','center');
+    end
+    title('Reference')
+    ylim([-inf inf])
+    
+    % THe one to manipulate
+    probe_areas_ax  = subplot(3,7,[4,5,11,12,18,19]);
     patchobj = gobjects;
     textobj = gobjects;
-    for i=2:length(switchpoints)
-        patchobj(i-1) = patch([0 1 1 0],[areapoints(switchpoints(i-1)) areapoints(switchpoints(i-1)) areapoints(switchpoints(i)) areapoints(switchpoints(i))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{IC(switchpoints(i-1))}))));
-        textobj(i-1) = text(0.5,nanmean([areapoints(switchpoints(i-1)) areapoints(switchpoints(i))]),UniqueAreas{IC(switchpoints(i-1))},'HorizontalAlignment','center');
+    for shid=1:nshanks
+        for i=2:length(switchpoints{shid})
+            patchobj(shid,i-1) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))}))));
+            textobj(shid,i-1) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))},'HorizontalAlignment','center');
+        end
+        patchobj(shid,i) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end)) areapoints{shid}(switchpoints{shid}(end))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))}))));
+        textobj(shid,i) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))},'HorizontalAlignment','center');
     end
-    patchobj(i) = patch([0 1 1 0],[areapoints(switchpoints(i)) areapoints(switchpoints(i)) areapoints(end) areapoints(end)],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{IC(switchpoints(i))}))));
-    textobj(i) = text(0.5,nanmean([areapoints(switchpoints(i)) areapoints(end)]),UniqueAreas{IC(switchpoints(i))},'HorizontalAlignment','center');
-    ylim([startpoint,endpoint]);    
+    ylim([startpoint,endpoint]);
     
-    title({'Probe areas','(ws keys to move, a to add ref line, d to delete ref line, f for flip probe ori, 123 for factor)','(q: save & quit, r: reset)'});
-    if coordinateflag
-      
-        
+    % Instructions
+    disp(['Use arrow keys to move up/down, left arrow to shrink, right arrow to enlarge'])
+    disp(['Use ''a/d'' to add/delete a reference line, (first) click on the probe, (then on the MUA)'])
+    disp(['Use "f" to flip probe orientation'])
+    disp(['To select specific shank input number'])
+    disp(['To apply input to all shanks, input 0'])
+    disp(['Press "i/k" to increase/decrease stepsize'])
+    disp(['Press "q" to save and quite'])
+    disp(['Press "r" to reset'])
+    
+    f = msgbox({'arrow keys: move up/down, left arrow to shrink, right arrow to enlarge';...
+        '''a/d'': add/delete a reference line, (first) click on the probe, (then on the MUA)';...
+   '"f": flip probe orientation';'"[Number]": To select specific shank input number';'"0": apply input to all shanks';...
+    '"i/k": increase/decrease stepsize';'"q": save and quite';'"r": reset'});
+
+    title('See instructions in command window');
+
+%     title({'Probe areas','(ws keys to move, a to add ref line, d to delete ref line, f for flip probe ori, 123 for factor)','(q: save & quit, r: reset)'});
+    if coordinateflag              
         yyaxis right
         ylim([startpoint,endpoint]);
         %Find corresponding trackcoordinates
-        tmplabel=trackcoordinates(cell2mat(arrayfun(@(X) find(abs(areapoints-X)==min(abs(areapoints-X)),1,'first'),get(gca,'YTick'),'UniformOutput',0)),:);
+        tmplabel=trackcoordinates{end}(cell2mat(arrayfun(@(X) find(abs(areapoints{end}-X)==min(abs(areapoints{end}-X)),1,'first'),get(gca,'YTick'),'UniformOutput',0)),:);
         tmplabel = num2cell(tmplabel,2);
         tmplabel = cellfun(@(X) ['[' num2str(round(X(1))) ';', num2str(round(X(2))), ';', num2str(round(X(3))),']'],tmplabel,'UniformOutput',0);
         set(gca,'YTickLabel',tmplabel)
@@ -261,217 +332,278 @@ while ~flag
         delete(boundary_lines)
     end
     boundary_lines = gobjects;
-    for curr_boundary = 1:length(switchpoints)
-        boundary_lines(curr_boundary,1) = line(probe_areas_ax,[0 1], ...
-            repmat(areapoints(switchpoints(curr_boundary)),1,2),'color','b','linewidth',1);
-        boundary_lines(curr_boundary,2) = line(multiunit_ax,[startpoint endpoint], ...
-            repmat(areapoints(switchpoints(curr_boundary)),1,2),'color','y','linewidth',1,'LineStyle','--');
+    for shid=1:nshanks
+        for curr_boundary = 1:length(switchpoints{shid})
+            boundary_lines(curr_boundary,1,shid) = line(probe_areas_ax,[shid-1 shid], ...
+                repmat(areapoints{shid}(switchpoints{shid}(curr_boundary)),1,2),'color','b','linewidth',1);
+            boundary_lines(curr_boundary,2,shid) = line(multiunit_ax,[size(mua_corr,1)*(shid-1) size(mua_corr,1)*shid], ...
+                repmat(areapoints{shid}(switchpoints{shid}(curr_boundary)),1,2),'color','y','linewidth',1,'LineStyle','--');
+        end
     end
     %% Interface
-    matchedswitchpoints = nan(2,length(switchpoints));
-    matchedswitchpoints(1,:)=areapoints(switchpoints);
+    matchedswitchpoints = cell(nshanks,1);%nan(2,length(switchpoints),nshanks);
+    for shid  =1:nshanks
+        matchedswitchpoints{shid} = nan(2,length(switchpoints{shid}));
+        matchedswitchpoints{shid}(1,:)=areapoints{shid}(switchpoints{shid});
+    end
     newswitchpoints = switchpoints;
     if coordinateflag
-        newtrackcoordinates = nan(size(trackcoordinates));
+        newtrackcoordinates = cellfun(@(X) nan(size(X)),trackcoordinates,'UniformOutput',0);
     end
     newareapoints = areapoints; %new s
     oristartpoint = startpoint;
     oriendpoint = endpoint;   
-    stepsize = unique(round(abs(diff(areapoints))));
     
-    disp('ws keys to move, a to add reference line, d to delete ref line, f for flip probe orientation, 123 for speed of movement, q: save & quit, r: reset');
     okay = 0;
     key = '';
-    y_change = 3;
+    y_change = 10;
+    selectedshank = [1:nshanks];
     while ~okay
         switch key
             % Set amounts to move by with/without shift
-            case '1'
-                y_change = 1;
-            case '2'
-                y_change = 10;
-            case '3'
-                y_change = 100;
+            case 'i'
+                y_change = y_change*10
+            case 'k'
+                y_change = y_change/10
                 % up/down: move probe areas
-            case 'w'
-                if isnan( matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]))
-                    matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]) = matchedswitchpoints(1,[1 size(matchedswitchpoints,2)]) - y_change;
-                else
-                    matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]) = matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]) - y_change;
+            case 'uparrow'
+                disp('Moving UP')
+                for shid=selectedshank
+                    if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)]) - y_change;
+                    else
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) - y_change;
+                    end
                 end
-            case 's'
-                if isnan(matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]))
-                    matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]) = matchedswitchpoints(1,[1 size(matchedswitchpoints,2)]) + y_change;
-                else
-                    matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]) = matchedswitchpoints(2,[1 size(matchedswitchpoints,2)]) + y_change;
+            case 'downarrow'
+                disp('Moving Down')
+                for shid=selectedshank
+                    if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)]) + y_change;
+                    else
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) + y_change;
+                    end
                 end
+            case 'rightarrow' %Enlarge
+                disp('Stretching')
+                  for shid=selectedshank
+                    if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                        if shid==selectedshank(1)
+                        adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                        end
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
+                    else
+                        if shid==selectedshank(1)
+                        adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                        end
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
+                    end
+                end                
+            case 'leftarrow' %Shrink
+                disp('Shrinking')
+                for shid=selectedshank
+                    if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                        if shid==selectedshank(1)
+                        adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                        end
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
+                    else
+                        if shid==selectedshank(1)
+                        adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                        end
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
+                    end
+                end                
             case 'r'
+                disp('Reset')
                 newswitchpoints = switchpoints;
-                matchedswitchpoints(2,:) = nan;
-                for curr_boundary = 1:length(newswitchpoints)
-                    set(boundary_lines(curr_boundary,1),'color','b')
-                    set(boundary_lines(curr_boundary,2),'color','y')
-                end
+                for shid  =1:nshanks
+                    matchedswitchpoints{shid}(2,:) = nan;
+                    for curr_boundary = 1:length(newswitchpoints{shid})
+                        set(boundary_lines(curr_boundary,1,shid),'color','b')
+                        set(boundary_lines(curr_boundary,2,shid),'color','y')
+                    end
+                end                
             case 'a' %Add reference line
                 disp('Click to add reference line on probe')
                 roi1 = drawpoint;
-                [~,minidx] = nanmin(abs(areapoints(newswitchpoints)-roi1.Position(2)));
-                set(boundary_lines(minidx,1),'color','r')
+                for shid=selectedshank
+                    [~,minidx] = nanmin(abs(areapoints{shid}(newswitchpoints{shid})-roi1.Position(2)));
+                    set(boundary_lines(minidx,1,shid),'color','r')
+                end
                 delete(roi1)
                 %find closest line;
                 disp('Click to add reference line on MUA')
                 roi2 = drawpoint;
-                set(boundary_lines(minidx,2),'color','r','YData',[roi2.Position(2) roi2.Position(2)])
-                matchedswitchpoints(2,minidx) = roi2.Position(2);
+                for shid=selectedshank
+                    set(boundary_lines(minidx,2,shid),'color','r','YData',[roi2.Position(2) roi2.Position(2)])
+                    matchedswitchpoints{shid}(2,minidx) = roi2.Position(2);
+                end
                 delete(roi2)
             case 'd' %Remove reference line
                 disp('Click to remove reference line on probe')
                 roi1 = drawpoint;
-                [~,minidx] = nanmin(abs(areapoints(newswitchpoints)-roi1.Position(2)));
-                set(boundary_lines(minidx,1),'color','b')
+                for shid=selectedshank
+                    [~,minidx] = nanmin(abs(areapoints{shid}(newswitchpoints{shid})-roi1.Position(2)));
+                    set(boundary_lines(minidx,1,shid),'color','b')
+                end
                 delete(roi1)
-                set(boundary_lines(minidx,2),'color','y','YData',[areapoints(newswitchpoints(minidx)) areapoints(newswitchpoints(minidx))])
-                matchedswitchpoints(2,minidx) = nan;
+                parfor shid=selectedshank
+                    set(boundary_lines(minidx,2,shid),'color','y','YData',[areapoints{shid}(newswitchpoints{shid}(minidx)) areapoints{shid}(newswitchpoints{shid}(minidx))])
+                    matchedswitchpoints{shid}(2,minidx) = nan;
+                end
                 delete(roi2)
                 % q: save and quit
             case 'f' %Flip orientation of probe
+                disp('Flipping orientation')
                 surfacefirst = abs(surfacefirst-1);
                 break
             case 'q'
+                disp('Happy :)')
                 okay = 1;
                 flag = 1;
                 break
+            case '1'
+                selectedshank = 1
+            case '2'
+                selectedshank =2
+            case '3'
+                selectedshank = 3
+            case '4'
+                selectedshank = 4
+            case '5'
+                selectedshank =5 %etc. add more if needed
+            case '0'
+                selectedshank = [1:nshanks]
         end
-        newswitchpoints(newswitchpoints<1) = nan;
-        newswitchpoints(newswitchpoints>length(newareapoints))=nan;
-        % Update figure
-        if sum(~isnan(matchedswitchpoints(2,:))) > 1
-            %         match the two
-            nonnanidx = find(~isnan(matchedswitchpoints(2,:)));
-            if nonnanidx(1)~=1
-                %         1 to first matchedswitchpoint
-                newvals = matchedswitchpoints(2,1:nonnanidx(1));
-                oldvals = matchedswitchpoints(1,1:nonnanidx(1));
-                proportion = (oldvals-oldvals(1))./(oldvals(end)-oldvals(1)); %proportion of areas in between
-                %New switchpoints, keep proportion of in between areas the same
-                newswitchpoints(1:nonnanidx(1)) = cell2mat(arrayfun(@(X) find(abs(newareapoints-X)==nanmin(abs(newareapoints-X)),1,'first'),(newvals(end)-oldvals(1))*proportion+oldvals(1),'UniformOutput',0));
-                if coordinateflag
-                    newtrackcoordinates(newswitchpoints(1):newswitchpoints(nonnanidx(1)),:)= [linspace(trackcoordinates(switchpoints(1),1),trackcoordinates(switchpoints(nonnanidx(1)),1),length(newswitchpoints(1):newswitchpoints(nonnanidx(1)))); ...
-                        linspace(trackcoordinates(switchpoints(1),2),trackcoordinates(switchpoints(nonnanidx(1)),2),length(newswitchpoints(1):newswitchpoints(nonnanidx(1)))); ...
-                        linspace(trackcoordinates(switchpoints(1),3),trackcoordinates(switchpoints(nonnanidx(1)),3),length(newswitchpoints(1):newswitchpoints(nonnanidx(1))))]';
+        key = '';
+        if any(selectedshank>nshanks)
+            warning('Selected non-existing shank. Set to select all shanks')
+            selectedshank = [1:nshanks];
+        end
+        for shid=1:nshanks
+            newswitchpoints{shid}(newswitchpoints{shid}<1) = nan;
+            newswitchpoints{shid}(newswitchpoints{shid}>length(newareapoints{shid}))=nan;
+            % Update figure
+            if sum(~isnan(matchedswitchpoints{shid}(2,:))) > 1
+                %         match the two
+                nonnanidx = find(~isnan(matchedswitchpoints{shid}(2,:)));
+                if nonnanidx(1)~=1
+                    %         1 to first matchedswitchpoint
+                    newvals = matchedswitchpoints{shid}(2,1:nonnanidx(1));
+                    oldvals = matchedswitchpoints{shid}(1,1:nonnanidx(1));
+                    proportion = (oldvals-oldvals(1))./(oldvals(end)-oldvals(1)); %proportion of areas in between
+                    %New switchpoints, keep proportion of in between areas the same
+                    newswitchpoints{shid}(1:nonnanidx(1)) = cell2mat(arrayfun(@(X) find(abs(newareapoints{shid}-X)==nanmin(abs(newareapoints{shid}-X)),1,'first'),(newvals(end)-oldvals(1))*proportion+oldvals(1),'UniformOutput',0));
+                    if coordinateflag
+                        newtrackcoordinates{shid}(newswitchpoints{shid}(1):newswitchpoints{shid}(nonnanidx(1)),:)= [linspace(trackcoordinates{shid}(switchpoints{shid}(1),1),trackcoordinates{shid}(switchpoints{shid}(nonnanidx(1)),1),length(newswitchpoints{shid}(1):newswitchpoints{shid}(nonnanidx(1)))); ...
+                            linspace(trackcoordinates{shid}(switchpoints{shid}(1),2),trackcoordinates{shid}(switchpoints{shid}(nonnanidx(1)),2),length(newswitchpoints{shid}(1):newswitchpoints{shid}(nonnanidx(1)))); ...
+                            linspace(trackcoordinates{shid}(switchpoints{shid}(1),3),trackcoordinates{shid}(switchpoints{shid}(nonnanidx(1)),3),length(newswitchpoints{shid}(1):newswitchpoints{shid}(nonnanidx(1))))]';
+                    end
                 end
-            end
-            for i = 1:length(nonnanidx)-1
-                newvals = matchedswitchpoints(2,nonnanidx(i):nonnanidx(i+1));
-                oldvals = matchedswitchpoints(1,nonnanidx(i):nonnanidx(i+1));
-                proportion = (oldvals-oldvals(1))./(oldvals(end)-oldvals(1)); %proportion of areas in between
-                %New switchpoints, keep proportion of in between areas the same
-                newswitchpoints(nonnanidx(i):nonnanidx(i+1)) = cell2mat(arrayfun(@(X) find(abs(newareapoints-X)==nanmin(abs(newareapoints-X)),1,'first'),(newvals(end)-newvals(1))*proportion+newvals(1),'UniformOutput',0));
-                if coordinateflag
-                    newtrackcoordinates(newswitchpoints(nonnanidx(i)):newswitchpoints(nonnanidx(i+1)),:)= [linspace(trackcoordinates(switchpoints(nonnanidx(i)),1),trackcoordinates(switchpoints(nonnanidx(i+1)),1),length(newswitchpoints(nonnanidx(i)):newswitchpoints(nonnanidx(i+1)))); ...
-                        linspace(trackcoordinates(switchpoints(nonnanidx(i)),2),trackcoordinates(switchpoints(nonnanidx(i+1)),2),length(newswitchpoints(nonnanidx(i)):newswitchpoints(nonnanidx(i+1))));...
-                        linspace(trackcoordinates(switchpoints(nonnanidx(i)),3),trackcoordinates(switchpoints(nonnanidx(i+1)),3),length(newswitchpoints(nonnanidx(i)):newswitchpoints(nonnanidx(i+1))))]';
+                for i = 1:length(nonnanidx)-1
+                    newvals = matchedswitchpoints{shid}(2,nonnanidx(i):nonnanidx(i+1));
+                    oldvals = matchedswitchpoints{shid}(1,nonnanidx(i):nonnanidx(i+1));
+                    proportion = (oldvals-oldvals(1))./(oldvals(end)-oldvals(1)); %proportion of areas in between
+                    %New switchpoints, keep proportion of in between areas the same
+                    newswitchpoints{shid}(nonnanidx(i):nonnanidx(i+1)) = cell2mat(arrayfun(@(X) find(abs(newareapoints{shid}-X)==nanmin(abs(newareapoints{shid}-X)),1,'first'),(newvals(end)-newvals(1))*proportion+newvals(1),'UniformOutput',0));
+                    if coordinateflag
+                        newtrackcoordinates{shid}(newswitchpoints{shid}(nonnanidx(i)):newswitchpoints{shid}(nonnanidx(i+1)),:)= [linspace(trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i)),1),trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i+1)),1),length(newswitchpoints{shid}(nonnanidx(i)):newswitchpoints{shid}(nonnanidx(i+1)))); ...
+                            linspace(trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i)),2),trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i+1)),2),length(newswitchpoints{shid}(nonnanidx(i)):newswitchpoints{shid}(nonnanidx(i+1))));...
+                            linspace(trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i)),3),trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i+1)),3),length(newswitchpoints{shid}(nonnanidx(i)):newswitchpoints{shid}(nonnanidx(i+1))))]';
+                    end
                 end
-            end
-            %Now the bit after
-            if nonnanidx(i+1)<size(matchedswitchpoints,2)
-                newvals = matchedswitchpoints(2,nonnanidx(i+1):end);                
-                oldvals = matchedswitchpoints(1,nonnanidx(i+1):end);
-                proportion = ((oldvals-oldvals(1))./(oldvals(end)-oldvals(1))); %proportion of areas in between
-                %New switchpoints, keep proportion of in between areas the same
-                newswitchpoints(nonnanidx(i+1):end) = cell2mat(arrayfun(@(X) find(abs(newareapoints-X)==nanmin(abs(newareapoints-X)),1,'first'),(oldvals(end)-newvals(1))*proportion+newvals(1),'UniformOutput',0));
-                if coordinateflag
-                    newtrackcoordinates(newswitchpoints(nonnanidx(i+1)):length(newtrackcoordinates),:)= [linspace(trackcoordinates(switchpoints(nonnanidx(i+1)),1),trackcoordinates(end,1),length(newswitchpoints(nonnanidx(i+1)):length(newtrackcoordinates))); ...
-                        linspace(trackcoordinates(switchpoints(nonnanidx(i+1)),2),trackcoordinates(end,2),length(newswitchpoints(nonnanidx(i+1)):length(newtrackcoordinates))); ...
-                        linspace(trackcoordinates(switchpoints(nonnanidx(i+1)),3),trackcoordinates(end,3),length(newswitchpoints(nonnanidx(i+1)):length(newtrackcoordinates)))]';
+                %Now the bit after
+                if nonnanidx(i+1)<size(matchedswitchpoints{shid},2)
+                    newvals = matchedswitchpoints{shid}(2,nonnanidx(i+1):end);
+                    oldvals = matchedswitchpoints{shid}(1,nonnanidx(i+1):end);
+                    proportion = ((oldvals-oldvals(1))./(oldvals(end)-oldvals(1))); %proportion of areas in between
+                    %New switchpoints, keep proportion of in between areas the same
+                    newswitchpoints{shid}(nonnanidx(i+1):end) = cell2mat(arrayfun(@(X) find(abs(newareapoints{shid}-X)==nanmin(abs(newareapoints{shid}-X)),1,'first'),(oldvals(end)-newvals(1))*proportion+newvals(1),'UniformOutput',0));
+                    if coordinateflag
+                        newtrackcoordinates{shid}(newswitchpoints{shid}(nonnanidx(i+1)):length(newtrackcoordinates{shid}),:)= [linspace(trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i+1)),1),trackcoordinates{shid}(end,1),length(newswitchpoints{shid}(nonnanidx(i+1)):length(newtrackcoordinates{shid}))); ...
+                            linspace(trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i+1)),2),trackcoordinates{shid}(end,2),length(newswitchpoints{shid}(nonnanidx(i+1)):length(newtrackcoordinates{shid}))); ...
+                            linspace(trackcoordinates{shid}(switchpoints{shid}(nonnanidx(i+1)),3),trackcoordinates{shid}(end,3),length(newswitchpoints{shid}(nonnanidx(i+1)):length(newtrackcoordinates{shid})))]';
+                    end
                 end
-            end
-            
-            if any(diff(newswitchpoints)<0)
-                disp('Something went wrong, Reset')
-                newswitchpoints = switchpoints;
-                matchedswitchpoints(2,:) = nan;
-                for curr_boundary = 1:length(newswitchpoints)
-                    set(boundary_lines(curr_boundary,1),'color','b')
-                    set(boundary_lines(curr_boundary,2),'color','y')
-                end
-            end
-            for i=2:length(newswitchpoints)
-                patchobj(i-1).YData=[newareapoints(newswitchpoints(i-1)) newareapoints(newswitchpoints(i-1)) newareapoints(newswitchpoints(i)) newareapoints(newswitchpoints(i))];
-                textobj(i-1).Position(2) = nanmean([newareapoints(newswitchpoints(i-1)) newareapoints(newswitchpoints(i))]);
-            end
-            patchobj(i).YData=[newareapoints(newswitchpoints(i)) newareapoints(newswitchpoints(i)) newareapoints(newswitchpoints(end)) newareapoints(newswitchpoints(end))];
-            textobj(i).Position(2) = nanmean([newareapoints(newswitchpoints(i)) newareapoints(newswitchpoints(end))]);
-            
-            ylim([oristartpoint oriendpoint])
-            
-            % update boundary lines at borders (and undo clipping to extend across all)
-            for curr_boundary = 1:length(newswitchpoints)
-                set(boundary_lines(curr_boundary,1),'YData',repmat(newareapoints(newswitchpoints(curr_boundary)),1,2))
-                set(boundary_lines(curr_boundary,2),'YData',repmat(newareapoints(newswitchpoints(curr_boundary)),1,2))
-            end
-            
-            if coordinateflag
-                subplot(probe_areas_ax)
-                yyaxis right
-                hold on
                 
-                ylim([oristartpoint,oriendpoint]);
-                %Find corresponding trackcoordinates
-                tmplabel=newtrackcoordinates(cell2mat(arrayfun(@(X) find(abs(newareapoints-X)==min(abs(newareapoints-X)),1,'first'),get(gca,'YTick'),'UniformOutput',0)),:);
-                tmplabel = num2cell(tmplabel,2);
-                tmplabel = cellfun(@(X) ['[' num2str(round(X(1))) ';', num2str(round(X(2))), ';', num2str(round(X(3))),']'],tmplabel,'UniformOutput',0);
-                set(gca,'YTickLabel',tmplabel)
-                yyaxis left
+                if any(diff(newswitchpoints{shid})<0)
+                    disp('Something went wrong, Reset')
+                    newswitchpoints{shid} = switchpoints{shid};
+                    matchedswitchpoints{shid}(2,:) = nan;
+                    for curr_boundary = 1:length(newswitchpoints{shid})
+                        set(boundary_lines(curr_boundary,1,shid),'color','b')
+                        set(boundary_lines(curr_boundary,2,shid),'color','y')
+                    end
+                end                
+                        
+                for i=2:length(newswitchpoints{shid})
+                    patchobj(shid,i-1).YData=[newareapoints{shid}(newswitchpoints{shid}(i-1)) newareapoints{shid}(newswitchpoints{shid}(i-1)) newareapoints{shid}(newswitchpoints{shid}(i)) newareapoints{shid}(newswitchpoints{shid}(i))];
+                    textobj(shid,i-1).Position(2) = nanmean([newareapoints{shid}(newswitchpoints{shid}(i-1)) newareapoints{shid}(newswitchpoints{shid}(i))]);
+                end
+                patchobj(shid,i).YData=[newareapoints{shid}(newswitchpoints{shid}(i)) newareapoints{shid}(newswitchpoints{shid}(i)) newareapoints{shid}(newswitchpoints{shid}(end)) newareapoints{shid}(newswitchpoints{shid}(end))];
+                textobj(shid,i).Position(2) = nanmean([newareapoints{shid}(newswitchpoints{shid}(i)) newareapoints{shid}(newswitchpoints{shid}(end))]);
                 
+                ylim([oristartpoint oriendpoint])
+                
+                % update boundary lines at borders (and undo clipping to extend across all)
+                for curr_boundary = 1:length(newswitchpoints{shid})
+                    set(boundary_lines(curr_boundary,1,shid),'YData',repmat(newareapoints{shid}(newswitchpoints{shid}(curr_boundary)),1,2))
+                    set(boundary_lines(curr_boundary,2,shid),'YData',repmat(newareapoints{shid}(newswitchpoints{shid}(curr_boundary)),1,2))
+                end
+                
+                if coordinateflag
+                    subplot(probe_areas_ax)
+                    yyaxis right
+                    hold on
+                    
+                    ylim([oristartpoint,oriendpoint]);
+                    %Find corresponding trackcoordinates
+                    tmplabel=newtrackcoordinates{shid}(cell2mat(arrayfun(@(X) find(abs(newareapoints{shid}-X)==min(abs(newareapoints{shid}-X)),1,'first'),get(gca,'YTick'),'UniformOutput',0)),:);
+                    tmplabel = num2cell(tmplabel,2);
+                    tmplabel = cellfun(@(X) ['[' num2str(round(X(1))) ';', num2str(round(X(2))), ';', num2str(round(X(3))),']'],tmplabel,'UniformOutput',0);
+                    set(gca,'YTickLabel',tmplabel)
+                    yyaxis left
+                    
+                end
             end
         end
-        
+
         %Input?
         waitforbuttonpress
-        key = get(gcf,'CurrentCharacter');
+        key = get(gcf,'CurrentKey');
     end
 end
+close(f)
 %% Shift area
-areasaligned = cell(1,length(histinfo.RegionAcronym));
-for i = 1:length(newswitchpoints)-1
-    areasaligned(newswitchpoints(i):newswitchpoints(i+1)) = lower(AllAreas(i));
+areasaligned = cell(nshanks,length(histinfo.RegionAcronym)/nshanks);
+for shid=1:nshanks
+    for i = 1:length(newswitchpoints{shid})-1
+        areasaligned(shid,newswitchpoints{shid}(i):newswitchpoints{shid}(i+1)) = lower(AllAreas{shid}(i));
+%          areasaligned(shid,newswitchpoints{shid}(i):newswitchpoints{shid}(i+1)) = lower(UniqueAreas{shid}{IC{shid}(i)})
+    end
 end
 areasaligned(cell2mat(cellfun(@isempty,areasaligned,'UniformOutput',0)))={'root'};
 
-%% Make a depth to area conversion table - per channel
-[channels,IA,IC]=unique(channel);
-% depth = depth(IA);
-if coordinateflag
-    Depth2AreaPerChannel=cell(4,max(channels)+1); %Depth, regionname, color, actual coordinates
-else
-    Depth2AreaPerChannel=cell(3,max(channels)+1); %Depth, regionname, color
-end
-Depth2AreaPerChannel(1,channels+1) = (arrayfun(@(X) nanmean(depth(IC==X)),1:length(channels),'UniformOutput',0)); % on the probe
-tmp = (cellfun(@(X) find(abs(areapoints-X)==min(abs(areapoints-X)),1,'first'),(arrayfun(@(X) nanmean(depth(IC==X)),1:length(channels),'UniformOutput',0)),'UniformOutput',0));
-idx = channels+1;
-idx(cell2mat(cellfun(@isempty,tmp,'UniformOutput',0)))=[];
-Depth2AreaPerChannel(2,idx) = areasaligned(cell2mat(tmp));
-Depth2AreaPerChannel(3,idx) = cellfun(@(X) color_hex(ismember(acronyms,X)),Depth2AreaPerChannel(2,idx),'UniformOutput',0);
-if coordinateflag
-    Depth2AreaPerChannel(4,idx) = num2cell(newtrackcoordinates(cell2mat(tmp),:),2);
-end
 %% Make a depth to area conversion table - per unit
-tmp = (arrayfun(@(X) find(abs(areapoints-X)==min(abs(areapoints-X)),1,'first'),depth,'UniformOutput',0));
-clusterarea = repmat({'unknown'},1,length(cluster_id));
-idx = 1:length(clusterarea);
-idx(cell2mat(cellfun(@isempty,tmp,'UniformOutput',0))) = [];
-clusterarea(idx) = areasaligned(cell2mat(tmp(idx)));
-clustercolor = repmat({'#808080'},1,length(cluster_id));
-clustercolor(idx) = cellfun(@(X) color_hex(ismember(acronyms,X)),clusterarea(idx),'UniformOutput',0);
-
-if coordinateflag
-    clustercoord = repmat({[nan,nan,nan]},1,length(cluster_id));
-    clustercoord(idx) = num2cell(newtrackcoordinates(cell2mat(tmp(idx)),:),2);
-    Depth2AreaPerUnit = table(cluster_id,depth,clusterarea',clustercolor',clustercoord','VariableNames',{'Cluster_ID','Depth','Area','Color','Coordinates'});
-else
-    Depth2AreaPerUnit = table(cluster_id,depth,clusterarea',clustercolor','VariableNames',{'Cluster_ID','Depth','Area','Color'});
+for shid=1:nshanks
+    tmp = (arrayfun(@(X) find(abs(areapoints{shid}-X)==min(abs(areapoints{shid}-X)),1,'first'),depth(ShankID==shid),'UniformOutput',0));
+    clusterarea = repmat({'unknown'},1,length(cluster_id(ShankID==shid)));
+    idx = 1:length(clusterarea);
+    idx(cell2mat(cellfun(@isempty,tmp,'UniformOutput',0))) = [];
+    clusterarea(idx) = areasaligned(shid,cell2mat(tmp(idx)));
+    clustercolor = repmat({'#808080'},1,length(cluster_id(ShankID==shid)));
+    clustercolor(idx) = cellfun(@(X) color_hex(ismember(acronyms,X)),clusterarea(idx),'UniformOutput',0);
+    
+    if coordinateflag
+        clustercoord = repmat({[nan,nan,nan]},1,length(cluster_id(ShankID==shid)));
+        clustercoord(idx) = num2cell(newtrackcoordinates{shid}(cell2mat(tmp(idx)),:),2);
+        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid),depth(ShankID==shid),ShankID(ShankID==shid),clusterarea',clustercolor',clustercoord','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color','Coordinates'});
+    else
+        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid),depth(ShankID==shid),clusterarea',clustercolor','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color'});
+    end
 end
+Depth2AreaPerUnit=cat(1,Depth2AreaPerUnit{:});
 
 end
 

@@ -227,7 +227,7 @@ if nidq_sync_used(midx)
         end
     else
         disp('Cannot find correlating data')
-        keyboard
+        abortsession=1;
     end
 else % Flipper directly in sync channel;
     

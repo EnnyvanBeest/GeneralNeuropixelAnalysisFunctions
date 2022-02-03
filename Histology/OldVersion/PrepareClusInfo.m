@@ -1,8 +1,3 @@
-% Create saving directory
-if ~exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
-    mkdir(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
-end
-
 myClusFile = dir(fullfile(myKsDir,'cluster_info.tsv'));
 if isempty(myClusFile)
     disp('This data is not yet curated with phy!!')
@@ -34,31 +29,16 @@ if isempty(myClusFile)
     clusinfo.id = cluster_id;
 else
     CurationDone = 1;
-    save(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'CuratedResults.mat'),'CurationDone')
+    save(fullfile(SaveDir,MiceOpt{midx},thisdate,thisses,thisprobe,'CuratedResults.mat'),'CurationDone')
     clusinfo = tdfread(fullfile(myClusFile(1).folder,myClusFile(1).name));
     curratedflag=1;
-
+    
     cluster_id = clusinfo.id;
     KSLabel = clusinfo.KSLabel;
     depth = clusinfo.depth;
     channel = clusinfo.ch;
-    Good_ID = ismember(cellstr(KSLabel),'good'); %Identify good clusters
+    Good_ID = find(sum(ismember(KSLabel,'good'),2)==4);
+    
 end
 
-% Find shank
-myClusFile = dir(fullfile(myKsDir,'channel_map.npy'));
-channelmap = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
-
-myClusFile = dir(fullfile(myKsDir,'channel_positions.npy'));
-channelpos = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
-
-% Shank options
-xpos = channelpos(:,1);
-Shank = round(xpos(channel)/100); % Assuming no new shank if not at least 100 micron apart
-ShankOpt = unique(Shank);
-ShankID = nan(size(Shank));
-for id = 1:length(ShankOpt)
-    ShankID(Shank==ShankOpt(id))=id;
-end
-clusinfo.ShankID = ShankID;
-Good_IDx = find(Good_ID);
+Good_IDx = clusinfo.id(Good_ID);

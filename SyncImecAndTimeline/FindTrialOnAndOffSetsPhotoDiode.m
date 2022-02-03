@@ -67,7 +67,11 @@ for trialid = 1:length(TrialDurations)
             starttrialidx(trialid) = tmp;
         end
     else
-        starttrialidx(trialid) = find(diffTime(currentlyat+round(ITITimes(trialid)*tmSR):end)>0,1,'first')+currentlyat+round(ITITimes(trialid)*tmSR)-1;
+        if trialid==1 %not always a full ITI recorded
+            starttrialidx(trialid) = find(diffTime(currentlyat:end)>0,1,'first')+currentlyat-1;
+        else
+            starttrialidx(trialid) = find(diffTime(currentlyat+round(ITITimes(trialid)*tmSR):end)>0,1,'first')+currentlyat+round(ITITimes(trialid)*tmSR)-1;
+        end
     end
     if trialid==1
         ITIDurationsTL(trialid) = (starttrialidx(trialid)-sessionstart)./tmSR;
