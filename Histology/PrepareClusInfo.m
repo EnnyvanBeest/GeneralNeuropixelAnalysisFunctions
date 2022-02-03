@@ -54,7 +54,7 @@ channelpos = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
 
 % Shank options
 xpos = channelpos(:,1);
-Shank = round(xpos(channel)/100); % Assuming no new shank if not at least 100 micron apart
+Shank = round(xpos(channel+1)/100); % Assuming no new shank if not at least 100 micron apart
 ShankOpt = unique(Shank);
 ShankID = nan(size(Shank));
 for id = 1:length(ShankOpt)
