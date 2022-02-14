@@ -9,8 +9,7 @@ DateOpt = cat(2,DateOpt{:});
 DateOpt = cellfun(@(X) X([X.isdir]),DateOpt,'UniformOutput',0);
 DateOpt = cellfun(@(X) {X.name},DateOpt,'UniformOutput',0);
 RedoAfterClustering=1;
-Redo = 1; % Redo in general
-NewHistologyNeeded = 0; %Automatically to 1 after RedoAfterClustering
+NewHistologyNeeded = 1; %Automatically to 1 after RedoAfterClustering
 
 for midx = 1:length(MiceOpt)
     Dates4Mouse = DateOpt{midx};
@@ -33,25 +32,33 @@ for midx = 1:length(MiceOpt)
             
             %Saving directory
             thisprobe = subksdirs(probeid).name;
-            if 1%~RedoAfterClustering || exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'CuratedResults.mat'))
+            if (~NewHistologyNeeded && exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat'))) && (~RedoAfterClustering || exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'CuratedResults.mat')))
+                disp([MiceOpt{midx} ' ' thisdate ' already aligned... skip'])
                 continue
-            elseif RedoAfterClustering
+            elseif RedoAfterClustering || NewHistologyNeeded
                 myKsDir = fullfile(LocalDir,MiceOpt{midx},thisdate,thisprobe);
                 myClusFile = dir(fullfile(myKsDir,'cluster_info.tsv'));
                 if isempty(myClusFile)
-                    disp('This data is not yet curated with phy!!')
-                    continue
+                    disp([MiceOpt{midx} ' ' thisdate 'is not yet curated with phy!!'])
                 end
                 NewHistologyNeeded = 1; %Automatically to 1 after RedoAfterClustering
             end
             
             %% Load Spikedata
-            thisprobe = subksdirs(probeid).name;
             sp = loadKSdir(myKsDir);
             
             %% Get cluster information
-            PrepareClusInfo
+            PrepareClusInfo                        
             
+            %% Get LFP?
+            myLFDir = fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate,'ephys');
+            lfpD = dir(fullfile(myLFDir,'*','*','*.lf.*bin')); % ap file from spikeGLX specifically
+            if length(lfpD)~=length(subksdirs)
+                disp('Should be a different amount of probes?')
+                keyboard
+            end
+            lfpD = lfpD(probeid);            
+  
             %% Get Histology output
             GetHistologyOutput      %I created an extra function to have one line of code in the different scripts
             if ~histoflag

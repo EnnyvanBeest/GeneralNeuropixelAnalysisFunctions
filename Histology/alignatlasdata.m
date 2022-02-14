@@ -1,12 +1,12 @@
-function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,goodonly,surfacefirst,treeversion,trackcoordinates)
+function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,goodonly,surfacefirst,LFPDir,treeversion,trackcoordinates)
 % Enny van Beest, based on AP_histology from AJPeters & IBLAPP from Mayo
 % Faulkner
 %% Important
 % This tool is purely to align ephys-data (functional) to histology data,
 % as obtained by other methods. Preferably brainglobe (https://docs.brainglobe.info/) , or
-% alternatively allenccf (https://github.com/cortex-lab/allenCCF) 
+% alternatively allenccf (https://github.com/cortex-lab/allenCCF)
 % histinfo needs to come at a fine enough scale to include ALL areas, it
-% will not interpollate in the Allen Brain and assume additional areas. 
+% will not interpollate in the Allen Brain and assume additional areas.
 
 %% Inputs:
 % histology info: probe track coordinates. If histinfo is a cell, every
@@ -17,8 +17,9 @@ function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,go
 % Output from sp = loadKSdir(myKsDir); (Nick Steinmetz: https://github.com/cortex-lab/spikes)
 % cluster information (KS/Phy output): channel (ID per cluster) and depth (also per Cluster)
 
-%% Optional inputs: 
+%% Optional inputs:
 % surfacefirst = 1: position with lowest index is the surface of the brain. Default zero: Position with heighest index deeper in the brain
+% LFP folder, to also align using LFP. if empty don't use this
 % treeversion: which Allen Brain Tree structure to use? (default 2, = 2017; 1 = older)
 % trackcoordinates: for as many datapoints as in histinfo the X/Y/Z
 % coordinates of the probe (e.g. the npy file from Brain Globe Output,
@@ -35,8 +36,31 @@ function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,go
 if ~iscell(histinfo)
     histinfo{1} = histinfo;
 end
-if nargin>7 && ~iscell(trackcoordinates)
+if nargin>8 && ~iscell(trackcoordinates)
     trackcoordinates{1} = trackcoordinates;
+end
+
+%% LFP?
+LFP_On = 0;
+if nargin>7 && exist(LFPDir)
+    % Get information from meta file
+    lfpD = dir(LFPDir);
+    [Imecmeta] = ReadMeta2(lfpD.folder,'lf');
+    lfpFs = str2num(Imecmeta.imSampRate);
+    nChansInFile = strsplit(Imecmeta.acqApLfSy,',');  % neuropixels phase3a, from spikeGLX
+    nChansInFile = str2num(nChansInFile{1})+1; %add one for sync
+    freqBands = {[1.5 4], [4 10], [10 30], [30 80], [80 200]};
+    FreqNames = {'Delta','Theta','Alpha','Beta','Gamma'};
+
+    [lfpByChannel, allPowerEst, F, allPowerVar] = ...
+        lfpBandPower(fullfile(lfpD.folder,lfpD.name), lfpFs, nChansInFile, freqBands);
+    
+    allPowerEst = allPowerEst(:,1:nChansInFile)'; % now nChans x nFreq
+    
+    LFP_On =1;
+    %normalize LFP per frequency
+    lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,1))./nanstd(lfpByChannel,[],1);
+    
 end
 
 %% Use templatePositionsAmplitudes from the Spikes toolbox
@@ -61,20 +85,27 @@ try
 catch
     ShankID = ones(1,length(KSLabel));
 end
-nshanks = length(unique(ShankID));  
+nshanks = length(unique(ShankID));
 spikeShank = nan(length(spikeCluster),1);
 for shid = 1:nshanks
     spikeShank(ismember(spikeCluster,cluster_id(ShankID==shid))) = shid;
 end
 depth = clusinfo.depth;
 channel = clusinfo.ch;
-Good_ID = ismember(cellstr(KSLabel),'good'); %Identify good clusters
+Good_ID = find(ismember(cellstr(KSLabel),'good')); %Identify good clusters
 
 %% Select only good units to clean up MUA
 if nargin>4 && goodonly
     spikeID = ismember(spikeCluster,Good_ID);
 else
     spikeID = true(length(spikeCluster),1);
+
+    % Some form of quality control
+   spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes<=quantile(clusinfo.n_spikes,0.01))))=0; %too little spikes
+   spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes>=quantile(clusinfo.n_spikes,0.99))))=0; %too many spikes
+   spikeID(ismember(spikeCluster,cluster_id(clusinfo.amp>=quantile(clusinfo.amp,0.99))))=0; %ridiculous amplitudes
+   spikeID(ismember(spikeCluster,cluster_id(clusinfo.fr>=quantile(clusinfo.fr,0.99))))=0; %ridiculous firing rates
+   spikeID(ismember(spikeCluster,cluster_id(clusinfo.ContamPct>=quantile(clusinfo.ContamPct,0.99))))=0; %ridiculous Contamination percentage
 end
 
 %% Surface first?
@@ -83,7 +114,7 @@ if nargin<6
 end
 
 %% Load structure tree allen brain
-if nargin<7
+if nargin<8
     treeversion = 2;
 end
 if treeversion == 1
@@ -98,7 +129,7 @@ id = tmp.id;
 
 %% Actual coordinates known? - coordinates of track in Allen Brain space
 coordinateflag =0;
-if nargin>7
+if nargin>8
     coordinateflag = 1;
     figure
     cols = lines(length(trackcoordinates));
@@ -138,11 +169,31 @@ gui_fig = figure('color','w');
 flag = 0; %to keep track of finishing this loop
 depthunique = unique(spikeDepths(spikeID));
 
-% 
+%
 % %Find 'gaps' of low activity:
 % gaps = depthunique(find(nrspikesperdepth<thresh));
 endpoint = max(depthunique);
 startpoint = min(depthunique);
+
+%% Make LFP plot
+if LFP_On
+    LFP_axis = subplot(3,9,[1:2,10:11,19:20]);     
+    
+    %Infer depth per channel
+    [sortedchannels,sortid] = unique(channel);
+    sorteddepth = depth(sortid);
+
+    imagesc(1:length(FreqNames),sorteddepth,lfpByChannel(sortedchannels+1,:),[-2 2])
+    xlim([1,length(FreqNames)]);
+    set(gca, 'YDir', 'normal','XTick',1:length(FreqNames),'XTicklabel',FreqNames,'XTickLabelRotation',25);
+    ylabel('depth on probe (µm)');
+    % h = colorbar;
+    % h.Label.String = 'power (dB)';
+    colormap hot
+    title('LFP')
+    makepretty
+    
+end
 
 %% Get multiunit correlation - Copied from Petersen github
 n_corr_groups = 40;
@@ -151,7 +202,7 @@ depth_group = discretize(spikeDepths,depth_group_edges);
 depth_group_centers = depth_group_edges(1:end-1)+(diff(depth_group_edges)/2);
 unique_depths = 1:length(depth_group_edges)-1;
 
-spike_binning = 0.01; % seconds
+spike_binning = 0.5; % seconds
 corr_edges = nanmin(spikeTimes(spikeID==1)):spike_binning:nanmax(spikeTimes(spikeID==1));
 corr_centers = corr_edges(1:end-1) + diff(corr_edges);
 
@@ -165,10 +216,10 @@ for shid = 1:nshanks
 end
 mua_corr = cat(3,mua_corr{:});
 mua_corr = reshape(mua_corr,size(mua_corr,1),[]);
-limup = quantile(mua_corr(:),0.8);
+limup = [quantile(mua_corr(:),0.1) quantile(mua_corr(:),0.8)];
 % Plot multiunit correlation
-multiunit_ax = subplot(3,7,[1:3,8:10,15:17]);
-h=imagesc(1:length(depth_group_centers)*nshanks,depth_group_centers,mua_corr);
+multiunit_ax = subplot(3,9,[3:5,12:14,21:23]);
+h=imagesc(1:length(depth_group_centers)*nshanks,depth_group_centers,mua_corr,limup);
 caxis([0,max(mua_corr(mua_corr~=1))]); colormap(hot);
 set(h,'Alphadata',~isnan(mua_corr))
 set(gca,'Color',[0.5 0.5 0.5])
@@ -197,13 +248,17 @@ for shid = 1:length(histinfo)
     npoints = size(histinfo{shid},1);
     histinfo{shid}.shank = repmat(shid,npoints,1);
     if shid==1
-    histinfonew = histinfo{shid};
+        histinfonew = histinfo{shid};
     else
         histinfonew = cat(1,histinfonew,histinfo{shid});
     end
 end
 histinfo = histinfonew;
 clear histinfonew
+DifPr = (DProbe-endpoint);
+if DifPr<0
+    DifPr=0;
+end
 
 while ~flag
     %Now divide position of probe along this track
@@ -212,17 +267,17 @@ while ~flag
         for shid = 1:nshanks
             if ~surfacefirst
                 if coordinateflag
-                    areapoints{shid} = linspace(0-(DProbe-endpoint),endpoint,sum(histinfo.shank==shid));
+                    areapoints{shid} = linspace(0-DifPr,endpoint,sum(histinfo.shank==shid));
                     trackcoordinates{shid} = [linspace(Fits{shid}(1,1),Fits{shid}(2,1),length( areapoints{shid}));linspace(Fits{shid}(1,2),Fits{shid}(2,2),length( areapoints{shid}));linspace(Fits{shid}(1,3),Fits{shid}(2,3),length( areapoints{shid}))]';
                 else
-                    areapoints{shid} = linspace(0-(DProbe-endpoint),endpoint,sum(histinfo.shank==shid));
+                    areapoints{shid} = linspace(0-DifPr,endpoint,sum(histinfo.shank==shid));
                 end
             else
                 if coordinateflag
-                    areapoints{shid} = linspace(endpoint,0-(DProbe-endpoint),sum(histinfo.shank==shid));
+                    areapoints{shid} = linspace(endpoint,0-DifPr,sum(histinfo.shank==shid));
                     trackcoordinates{shid} = [linspace(Fits{shid}(2,1),Fits{shid}(1,1),length( areapoints{shid}));linspace(Fits{shid}(2,2),Fits{shid}(1,2),length( areapoints{shid}));linspace(Fits{shid}(2,3),Fits{shid}(1,3),length( areapoints{shid}))]';
                 else
-                    areapoints{shid} = linspace(endpoint,0-(DProbe-endpoint),sum(histinfo.shank==shid));
+                    areapoints{shid} = linspace(endpoint,0-DifPr,sum(histinfo.shank==shid));
                 end
             end
             [UniqueAreas{shid},IA{shid},IC{shid}] = unique((histinfo.RegionAcronym(histinfo.shank==shid)),'stable');
@@ -252,7 +307,7 @@ while ~flag
         end
         histinfo.RegionAcronym(ismember(histinfo.RegionAcronym,'void')) = {'root'};
         
-        [UniqueAreas,IA,IC] = unique(fliplr(histinfo.RegionAcronym),'stable'); 
+        [UniqueAreas,IA,IC] = unique(fliplr(histinfo.RegionAcronym),'stable');
     end
     UniqueAreas = cellfun(@(X) lower(X),UniqueAreas,'UniformOutput',0); % case insensitive
     switchpoints = cellfun(@(X) [1; find(diff(X)~=0)+1],IC,'UniformOutput',0); %Find points where region changes
@@ -261,12 +316,12 @@ while ~flag
     for shid = 1:nshanks
         AllAreas{shid} = histinfo.RegionAcronym(switchpoints{shid}+(npoints*(shid-1)));
     end
-
+    
     if exist('probe_areas_ax')
         delete(probe_areas_ax)
     end
     % To see entire probe as reference
-    Entireprobe_areas_ax  = subplot(3,7,[6,7,13,14,20,21]);
+    Entireprobe_areas_ax  = subplot(3,9,[8,9,17,18,26,27]);
     yyaxis right
     
     oripatchobj = gobjects;
@@ -274,25 +329,25 @@ while ~flag
     for shid=1:nshanks
         for i=2:length(switchpoints{shid})
             oripatchobj(shid,i-1) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))}))));
-            oritextobj(shid,i-1) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))},'HorizontalAlignment','center');
+            oritextobj(shid,i-1) = text(double(shid-0.5),double(nanmean([areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i))])),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))},'HorizontalAlignment','center');
         end
         oripatchobj(shid,i) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end)) areapoints{shid}(switchpoints{shid}(end))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))}))));
-        oritextobj(shid,i) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))},'HorizontalAlignment','center');
+        oritextobj(shid,i) = text(double(shid-0.5),double(nanmean([areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end))])),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))},'HorizontalAlignment','center');
     end
     title('Reference')
     ylim([-inf inf])
     
     % THe one to manipulate
-    probe_areas_ax  = subplot(3,7,[4,5,11,12,18,19]);
+    probe_areas_ax  =subplot(3,9,[6,7,15,16,24,25]);
     patchobj = gobjects;
     textobj = gobjects;
     for shid=1:nshanks
         for i=2:length(switchpoints{shid})
             patchobj(shid,i-1) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))}))));
-            textobj(shid,i-1) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))},'HorizontalAlignment','center');
+            textobj(shid,i-1) = text(double(shid-0.5),double(nanmean([areapoints{shid}(switchpoints{shid}(i-1)) areapoints{shid}(switchpoints{shid}(i))])),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i-1))},'HorizontalAlignment','center');
         end
         patchobj(shid,i) = patch([shid-1 shid shid shid-1],[areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end)) areapoints{shid}(switchpoints{shid}(end))],hex2rgb(color_hex(ismember(acronyms,UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))}))));
-        textobj(shid,i) = text(shid-0.5,nanmean([areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end))]),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))},'HorizontalAlignment','center');
+        textobj(shid,i) = text(double(shid-0.5),double(nanmean([areapoints{shid}(switchpoints{shid}(i)) areapoints{shid}(switchpoints{shid}(end))])),UniqueAreas{shid}{IC{shid}(switchpoints{shid}(i))},'HorizontalAlignment','center');
     end
     ylim([startpoint,endpoint]);
     
@@ -308,13 +363,13 @@ while ~flag
     
     f = msgbox({'arrow keys: move up/down, left arrow to shrink, right arrow to enlarge';...
         '''a/d'': add/delete a reference line, (first) click on the probe, (then on the MUA)';...
-   '"f": flip probe orientation';'"[Number]": To select specific shank input number';'"0": apply input to all shanks';...
-    '"i/k": increase/decrease stepsize';'"q": save and quite';'"r": reset'});
-
+        '"f": flip probe orientation';'"[Number]": To select specific shank input number';'"0": apply input to all shanks';...
+        '"i/k": increase/decrease stepsize';'"q": save and quite';'"r": reset'});
+    
     title('See instructions in command window');
-
-%     title({'Probe areas','(ws keys to move, a to add ref line, d to delete ref line, f for flip probe ori, 123 for factor)','(q: save & quit, r: reset)'});
-    if coordinateflag              
+    
+    %     title({'Probe areas','(ws keys to move, a to add ref line, d to delete ref line, f for flip probe ori, 123 for factor)','(q: save & quit, r: reset)'});
+    if coordinateflag
         yyaxis right
         ylim([startpoint,endpoint]);
         %Find corresponding trackcoordinates
@@ -352,7 +407,7 @@ while ~flag
     end
     newareapoints = areapoints; %new s
     oristartpoint = startpoint;
-    oriendpoint = endpoint;   
+    oriendpoint = endpoint;
     
     okay = 0;
     key = '';
@@ -370,50 +425,84 @@ while ~flag
                 disp('Moving UP')
                 for shid=selectedshank
                     if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)]) - y_change;
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)]) + y_change;
                     else
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) - y_change;
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) + y_change;
                     end
                 end
             case 'downarrow'
                 disp('Moving Down')
                 for shid=selectedshank
                     if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)]) + y_change;
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)]) - y_change;
                     else
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) + y_change;
+                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) - y_change;
                     end
                 end
             case 'rightarrow' %Enlarge
                 disp('Stretching')
-                  for shid=selectedshank
-                    if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
-                        if shid==selectedshank(1)
-                        adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                if surfacefirst
+                    for shid=selectedshank
+                        if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
+                        else
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
                         end
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
-                    else
-                        if shid==selectedshank(1)
-                        adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
-                        end
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
                     end
-                end                
+                else
+                    for shid=selectedshank
+                        if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
+                        else
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
+                        end
+                    end
+                    
+                    
+                end
             case 'leftarrow' %Shrink
                 disp('Shrinking')
-                for shid=selectedshank
-                    if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
-                        if shid==selectedshank(1)
-                        adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                if surfacefirst
+                    for shid=selectedshank
+                        if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
+                        else
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
                         end
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
-                    else
-                        if shid==selectedshank(1)
-                        adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
-                        end
-                        matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[-adddif adddif];
                     end
-                end                
+                else
+                    for shid=selectedshank
+                        if isnan(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]))
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(1,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
+                        else
+                            if shid==selectedshank(1)
+                                adddif = abs(diff(matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])))/2*y_change/1000;
+                            end
+                            matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)]) = matchedswitchpoints{shid}(2,[1 size(matchedswitchpoints{shid},2)])+[adddif -adddif];
+                        end
+                    end
+                end
             case 'r'
                 disp('Reset')
                 newswitchpoints = switchpoints;
@@ -423,7 +512,7 @@ while ~flag
                         set(boundary_lines(curr_boundary,1,shid),'color','b')
                         set(boundary_lines(curr_boundary,2,shid),'color','y')
                     end
-                end                
+                end
             case 'a' %Add reference line
                 disp('Click to add reference line on probe')
                 roi1 = drawpoint;
@@ -535,8 +624,8 @@ while ~flag
                         set(boundary_lines(curr_boundary,1,shid),'color','b')
                         set(boundary_lines(curr_boundary,2,shid),'color','y')
                     end
-                end                
-                        
+                end
+                
                 for i=2:length(newswitchpoints{shid})
                     patchobj(shid,i-1).YData=[newareapoints{shid}(newswitchpoints{shid}(i-1)) newareapoints{shid}(newswitchpoints{shid}(i-1)) newareapoints{shid}(newswitchpoints{shid}(i)) newareapoints{shid}(newswitchpoints{shid}(i))];
                     textobj(shid,i-1).Position(2) = nanmean([newareapoints{shid}(newswitchpoints{shid}(i-1)) newareapoints{shid}(newswitchpoints{shid}(i))]);
@@ -568,7 +657,7 @@ while ~flag
                 end
             end
         end
-
+        
         %Input?
         waitforbuttonpress
         key = get(gcf,'CurrentKey');
@@ -580,7 +669,7 @@ areasaligned = cell(nshanks,length(histinfo.RegionAcronym)/nshanks);
 for shid=1:nshanks
     for i = 1:length(newswitchpoints{shid})-1
         areasaligned(shid,newswitchpoints{shid}(i):newswitchpoints{shid}(i+1)) = lower(AllAreas{shid}(i));
-%          areasaligned(shid,newswitchpoints{shid}(i):newswitchpoints{shid}(i+1)) = lower(UniqueAreas{shid}{IC{shid}(i)})
+        %          areasaligned(shid,newswitchpoints{shid}(i):newswitchpoints{shid}(i+1)) = lower(UniqueAreas{shid}{IC{shid}(i)})
     end
 end
 areasaligned(cell2mat(cellfun(@isempty,areasaligned,'UniformOutput',0)))={'root'};

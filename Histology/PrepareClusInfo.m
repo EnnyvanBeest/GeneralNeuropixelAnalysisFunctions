@@ -13,7 +13,7 @@ if isempty(myClusFile)
     KSLabel = char(length(cluster_id));
     KSLabelfile = tdfread(fullfile(myKsDir,'cluster_KSLabel.tsv'));
     KSLabel(ismember(cluster_id,KSLabelfile.cluster_id)) = KSLabelfile.KSLabel(ismember(KSLabelfile.cluster_id,cluster_id));
-    Good_ID = find(KSLabel=='g');
+    Good_ID = ismember(cellstr(KSLabel),'good'); %Identify good clusters
     depth = nan(length(cluster_id),1);
     for clusid=1:length(depth)
         depth(clusid)=round(nanmean(spikeDepths(find(spikeCluster==clusid-1))));
@@ -37,8 +37,14 @@ else
     save(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'CuratedResults.mat'),'CurationDone')
     clusinfo = tdfread(fullfile(myClusFile(1).folder,myClusFile(1).name));
     curratedflag=1;
-
-    cluster_id = clusinfo.id;
+    if isfield(clusinfo,'id')
+        cluster_id = clusinfo.id;
+    elseif isfield(clusinfo,'cluster_id')
+        cluster_id=clusinfo.cluster_id;
+    else
+       keyboard
+       disp('Someone thought it was nice to change the name again...')       
+    end
     KSLabel = clusinfo.KSLabel;
     depth = clusinfo.depth;
     channel = clusinfo.ch;
@@ -54,7 +60,7 @@ channelpos = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
 
 % Shank options
 xpos = channelpos(:,1);
-Shank = round(xpos(channel+1)/100); % Assuming no new shank if not at least 100 micron apart
+Shank = ceil(xpos(channel+1)/100); % Assuming no new shank if not at least 100 micron apart
 ShankOpt = unique(Shank);
 ShankID = nan(size(Shank));
 for id = 1:length(ShankOpt)
