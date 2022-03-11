@@ -25,13 +25,13 @@ for midx = 1:length(MiceOpt)
             subksdirs.name = 'Probe1';
         end
         for probeid = 1:length(subksdirs)
-            myKsDir = fullfile(subksdirs(probeid).folder,subksdirs(probeid).name);
+            myKsDir = fullfile(subksdirs(probeid).folder,subksdirs(probeid).name)
             if ~isdir(myKsDir)
                 continue
             end
             
             %Saving directory
-            thisprobe = subksdirs(probeid).name;
+            thisprobe = subksdirs(probeid).name
             if (~NewHistologyNeeded && exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat'))) && (~RedoAfterClustering || exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'CuratedResults.mat')))
                 disp([MiceOpt{midx} ' ' thisdate ' already aligned... skip'])
                 continue
@@ -53,12 +53,14 @@ for midx = 1:length(MiceOpt)
             %% Get LFP?
             myLFDir = fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate,'ephys');
             lfpD = dir(fullfile(myLFDir,'*','*','*.lf.*bin')); % ap file from spikeGLX specifically
-            if length(lfpD)~=length(subksdirs)
+            if isempty(lfpD)
+                disp('No LFP data found')
+            elseif length(lfpD)~=length(subksdirs)
                 disp('Should be a different amount of probes?')
                 keyboard
+            else
+                lfpD = lfpD(probeid);
             end
-            lfpD = lfpD(probeid);            
-  
             %% Get Histology output
             GetHistologyOutput      %I created an extra function to have one line of code in the different scripts
             if ~histoflag

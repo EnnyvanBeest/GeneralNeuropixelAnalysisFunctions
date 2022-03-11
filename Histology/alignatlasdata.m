@@ -1,6 +1,7 @@
 function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,goodonly,surfacefirst,LFPDir,treeversion,trackcoordinates)
 % Enny van Beest, based on AP_histology from AJPeters & IBLAPP from Mayo
 % Faulkner
+
 %% Important
 % This tool is purely to align ephys-data (functional) to histology data,
 % as obtained by other methods. Preferably brainglobe (https://docs.brainglobe.info/) , or
@@ -42,7 +43,7 @@ end
 
 %% LFP?
 LFP_On = 0;
-if nargin>7 && exist(LFPDir)
+if nargin>7 && exist(LFPDir) && ~isempty(LFPDir)
     % Get information from meta file
     lfpD = dir(LFPDir);
     [Imecmeta] = ReadMeta2(lfpD.folder,'lf');
@@ -52,15 +53,19 @@ if nargin>7 && exist(LFPDir)
     freqBands = {[1.5 4], [4 10], [10 30], [30 80], [80 200]};
     FreqNames = {'Delta','Theta','Alpha','Beta','Gamma'};
 
+    try
     [lfpByChannel, allPowerEst, F, allPowerVar] = ...
         lfpBandPower(fullfile(lfpD.folder,lfpD.name), lfpFs, nChansInFile, freqBands);
-    
-    allPowerEst = allPowerEst(:,1:nChansInFile)'; % now nChans x nFreq
+      allPowerEst = allPowerEst(:,1:nChansInFile)'; % now nChans x nFreq
     
     LFP_On =1;
     %normalize LFP per frequency
     lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,1))./nanstd(lfpByChannel,[],1);
-    
+    catch ME
+        disp(ME)
+            LFP_On =0;
+
+    end
 end
 
 %% Use templatePositionsAmplitudes from the Spikes toolbox
@@ -76,14 +81,14 @@ catch
     cluster_id = clusinfo.cluster_id; %No manual curation?
 end
 try
-    KSLabel = clusinfo.KSLabel;
+    Label = clusinfo.group;
 catch
-    KSLabel = clusinfo.group; %No manual curation?
+    Label = clusinfo.KSLabel; %No manual curation?
 end
 try
     ShankID = clusinfo.ShankID;
 catch
-    ShankID = ones(1,length(KSLabel));
+    ShankID = ones(1,length(Label));
 end
 nshanks = length(unique(ShankID));
 spikeShank = nan(length(spikeCluster),1);
@@ -92,20 +97,21 @@ for shid = 1:nshanks
 end
 depth = clusinfo.depth;
 channel = clusinfo.ch;
-Good_ID = find(ismember(cellstr(KSLabel),'good')); %Identify good clusters
+Good_ID = find(ismember(cellstr(Label),'good')); %Identify good clusters
 
 %% Select only good units to clean up MUA
 if nargin>4 && goodonly
     spikeID = ismember(spikeCluster,Good_ID);
 else
     spikeID = true(length(spikeCluster),1);
-
+    
     % Some form of quality control
-   spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes<=quantile(clusinfo.n_spikes,0.01))))=0; %too little spikes
-   spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes>=quantile(clusinfo.n_spikes,0.99))))=0; %too many spikes
-   spikeID(ismember(spikeCluster,cluster_id(clusinfo.amp>=quantile(clusinfo.amp,0.99))))=0; %ridiculous amplitudes
-   spikeID(ismember(spikeCluster,cluster_id(clusinfo.fr>=quantile(clusinfo.fr,0.99))))=0; %ridiculous firing rates
-   spikeID(ismember(spikeCluster,cluster_id(clusinfo.ContamPct>=quantile(clusinfo.ContamPct,0.99))))=0; %ridiculous Contamination percentage
+    spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes<=quantile(clusinfo.n_spikes,0.01))))=0; %too little spikes
+    spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes>=quantile(clusinfo.n_spikes,0.99))))=0; %too many spikes
+    spikeID(ismember(spikeCluster,cluster_id(clusinfo.amp>=quantile(clusinfo.amp,0.99))))=0; %ridiculous amplitudes
+    spikeID(ismember(spikeCluster,cluster_id(clusinfo.fr>=quantile(clusinfo.fr,0.99))))=0; %ridiculous firing rates
+    spikeID(ismember(spikeCluster,cluster_id(clusinfo.ContamPct>=quantile(clusinfo.ContamPct,0.99))))=0; %ridiculous Contamination percentage
+    spikeID(ismember(spikeCluster,cluster_id(ismember(cellstr(Label),'noise'))))=0; %noise should not count, only MUA and good unit
 end
 
 %% Surface first?
@@ -124,8 +130,6 @@ elseif treeversion == 2
 end
 acronyms = lower(tmp.acronym);
 color_hex = tmp.color_hex_triplet;
-structure_id_path = tmp.structure_id_path;
-id = tmp.id;
 
 %% Actual coordinates known? - coordinates of track in Allen Brain space
 coordinateflag =0;
@@ -183,7 +187,7 @@ if LFP_On
     [sortedchannels,sortid] = unique(channel);
     sorteddepth = depth(sortid);
 
-    imagesc(1:length(FreqNames),sorteddepth,lfpByChannel(sortedchannels+1,:),[-2 2])
+    imagesc(1:length(FreqNames),[0:(nChansInFile-1)]*10,lfpByChannel,[-2 2])
     xlim([1,length(FreqNames)]);
     set(gca, 'YDir', 'normal','XTick',1:length(FreqNames),'XTicklabel',FreqNames,'XTickLabelRotation',25);
     ylabel('depth on probe (µm)');
@@ -243,6 +247,9 @@ title('MUA correlation');
 xlabel(multiunit_ax,'Multiunit depth X Probe');
 ylabel(multiunit_ax,'Multiunit depth');
 
+if LFP_On
+    set(LFP_axis,'ylim',[startpoint,endpoint])
+end
 %% Put histinfo in new shap with all shanks below each other
 for shid = 1:length(histinfo)
     npoints = size(histinfo{shid},1);

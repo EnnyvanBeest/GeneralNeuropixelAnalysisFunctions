@@ -1,30 +1,6 @@
-% Timeline to go to:
-
-
-Timeline = load(fullfile(timelinefile.folder,timelinefile.name));
-AllInputs = {Timeline.Timeline.hw.inputs(:).name}; %Just redefine AllInputs in case
-AllInputs = {'timestamps',AllInputs{:}}; % the first one is always timstamps
-
-tmpdat = cat(2,Timeline.Timeline.rawDAQTimestamps',Timeline.Timeline.rawDAQData);
-Timeline = tmpdat;
-
-Actualtime = Timeline(:,ismember(AllInputs,'timestamps'));
-tmSR = 1./nanmean(diff(Timeline(:,ismember(AllInputs,'timestamps')))); %Freq. Flipper
-
-% Other events
-rewardevents = Timeline(:,ismember(AllInputs,'rewardEcho'));
-rewardevents(rewardevents<2)=0;
-rewardevents(rewardevents~=0)=1;
-RewardIndex = find(rewardevents);
-removevec = ones(1,length(rewardevents));
-removevec(RewardIndex) = [1; diff(RewardIndex)];
-RewardIndex = find(removevec>quantile(removevec(:),0.15));
-RewardTime = Actualtime(RewardIndex);
-
-% Sync Flippers
-Flippertimeline = Timeline(:,ismember(AllInputs,'flipper'));
-Flippertimeline(Flippertimeline<1.5)=0;
-Flippertimeline(Flippertimeline>1)=1;
+if ~exist('Actualtime')
+    loadTimeline
+end
 
 spikeTimestmp = spikeTimes;            % Spike times according to IMEC
 spikeTimesCorrected = nan(size(spikeTimestmp)); % corrected spike times (to timeline)
@@ -41,6 +17,7 @@ sesnrs(cellfun(@isempty,sesnrs))={[1000]};
 allsess = allsess(idx);
 % NIDQ FILE
 if nidq_sync_used(midx)
+   
     mySyncFile = dir(fullfile(myLFDir,'*','*nidq.bin'))
     flag = 0;
     idx=1;
@@ -227,16 +204,18 @@ if nidq_sync_used(midx)
         end
     else
         disp('Cannot find correlating data')
-        abortsession=1;
+        abortthissession=1;
     end
 else % Flipper directly in sync channel;
     
     indx=1:length(Flippertimeline);
     
     %IMEC PULSE
-    syncChanIndex = 385;
-    syncDatImec = extractSyncChannel(lfpD.folder, nChansInFile, syncChanIndex);
-    [Imecmeta] = (ReadMeta2(lfpD.folder));
+    [Imecmeta] = ReadMeta2(lfpD.folder,'ap');
+    nchan = strsplit(Imecmeta.acqApLfSy,',');
+    nChansInFile = str2num(nchan{1})+str2num(nchan{3});
+    syncDatImec = extractSyncChannel(lfpD.folder, nChansInFile, nChansInFile); %Last channel is sync
+
     
     % normalize between 0 and 1 (it's now in uint16 till 64)
     tmpmean = nanmean(syncDatImec(:));
@@ -260,6 +239,11 @@ else % Flipper directly in sync channel;
     for ij = 1:length(allsess)
         tmptimeline = dir(fullfile(allsess(ij).folder,allsess(ij).name,'*_Timeline.mat'));
         if ~isempty(tmptimeline)
+            tmpcam = dir(fullfile(allsess(ij).folder,allsess(ij).name,'camSync.raw.npy')); % if this exist it's not a fUSI rig session --> Skip (shared mice with AVteam)
+            if ~isempty(tmpcam)
+                disp(['This is not a session recorded at fUSI rig, skip...'])
+                continue
+            end
             tmptl = load(fullfile(tmptimeline(1).folder,tmptimeline(1).name));
             if strcmp(allsess(ij).name,thisses)
                 break
@@ -375,7 +359,7 @@ else % Flipper directly in sync channel;
             drawnow
             AcceptableYN = '';
             while ~ismember(AcceptableYN,{'y','n'})
-                AcceptableYN = input('Is this alignment acceptable? (y/n)','s');
+                AcceptableYN = 'n';%input('Is this alignment acceptable? (y/n)','s');
                 if strcmpi(AcceptableYN,'n')
                     disp('Not acceptable, see if alignment can be done with spike data')
                     syncchanmissing = 1;
@@ -392,8 +376,14 @@ else % Flipper directly in sync channel;
         %Convert back to time in imec data
         TL2ImecTime = (delayindx+delayestimate)./tmSR;
         Imec2TLTime = -TL2ImecTime;
-        
-        %Find spikes in IMEC time, that fall in this window in
+        %Sanity check
+%         figure;
+%         indx=abs((-delayindx-delayestimate))+1:abs((-delayindx-delayestimate))+5000;
+%         plot(syncDatImec(indx),'k-')
+%         hold on
+%         plot(Flippertimeline(indx-delayindx-delayestimate)+1,'b-')
+%         
+        %         Find spikes in IMEC time, that fall in this window in
         %TIMELINE space
         spikeindx = find(spikeTimestmp>=TL2ImecTime+(i-1)&spikeTimestmp<=TL2ImecTime+(i+per2check-1));
         if ~isempty(spikeindx)

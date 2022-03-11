@@ -4,7 +4,6 @@
 
 % Aproximate start of session relative to ephys
 %             fullfile(SaveDir,MiceOpt{midx},thisdate,thisses,'SpikeData.mat')
-
 allsess = dir(fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate,thisprobe));
 if isempty(allsess)
     allsess = dir(fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate));
@@ -77,9 +76,9 @@ clusterIDhere = spikeCluster(spikeTimestmp>totaldur-extratime&spikeTimestmp<tota
 %             clusterIDhere = clusterIDhere(ismember(clusterIDhere,visid));
 
 %spikecount per unit
-spikecount = zeros(length([min(tmpspikeshere)-timeBinSize:timeBinSize:max(tmpspikeshere)+timeBinSize]),length(Good_ID));
-for i = 1:length(Good_ID)
-    tmp = [0 (histcounts(tmpspikeshere(clusterIDhere==Good_ID(i)),[min(tmpspikeshere)-timeBinSize:timeBinSize:max(tmpspikeshere)+timeBinSize]))];
+spikecount = zeros(length([min(tmpspikeshere)-timeBinSize:timeBinSize:max(tmpspikeshere)+timeBinSize]),length(Good_IDx));
+for i = 1:length(Good_IDx)
+    tmp = [0 (histcounts(tmpspikeshere(clusterIDhere==Good_IDx(i)),[min(tmpspikeshere)-timeBinSize:timeBinSize:max(tmpspikeshere)+timeBinSize]))];
     spikecount(tmp>0,i) = 1;
 end
 
@@ -95,7 +94,7 @@ if any(RotarySignalPerSec)
     plot(lag21,C21)
     title('Rotary vs. Spikes')
 else
-    C21=nan(1,length(RotarySignalPerSec)*2-1);
+    C21=nan(1,length(spikecount)*2-1);
 end
 
 %find maximum correlation between itioff signal and average spikecount
@@ -108,7 +107,7 @@ if any(itioff)
     plot(lag31,C31)
     title('ITItime vs. Spikes')
 else
-    C31=nan(1,length(itioff)*2-1);
+    C31=nan(1,length(spikecount)*2-1);
 
 end
 
@@ -123,7 +122,7 @@ if any(RewardSignal)
     plot(lag41,C41)
     title('RewardSignal vs. Spikes')
 else
-    C41=nan(1,length(RewardSignal)*2-1);
+    C41=nan(1,length(spikecount)*2-1);
 end
 
 % Sum together
