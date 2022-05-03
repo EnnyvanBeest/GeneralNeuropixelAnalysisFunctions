@@ -122,7 +122,7 @@ if any(RewardSignal)
     plot(lag41,C41)
     title('RewardSignal vs. Spikes')
 else
-    C41=nan(1,length(spikecount)*2-1);
+    C41=nan(1,length(C21));
 end
 
 % Sum together
@@ -178,6 +178,10 @@ indx2(indx2>length(syncDatImec))=[];
 if corr(double(imecclock(single(indx))),double(syncDatImec(single(indx2))'))>0.75
     warningflag=0
     disp('Correlation okay.. continue')
+elseif corr(double(imecclock(single(indx))),double(syncDatImec(single(indx2))'))<0.25
+    disp('Correlation bad, no need to check manually, skip..')
+    abortthissession = 1;
+    return
 else
     disp('Correlation not great...')
 end

@@ -3,93 +3,143 @@ if ~exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
     mkdir(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
 end
 
-myClusFile = dir(fullfile(myKsDir,'cluster_info.tsv'));
-if isempty(myClusFile)
-    disp('This data is not yet curated with phy!!')
-    curratedflag=0;
-    myClusFile = dir(fullfile(myKsDir,'cluster_group.tsv'));
-    clusinfo = tdfread(fullfile(myClusFile(1).folder,myClusFile(1).name));
-    cluster_id = clusinfo.cluster_id;
-    Label = char(length(cluster_id));
-    KSLabelfile = tdfread(fullfile(myKsDir,'cluster_KSLabel.tsv'));
-    Label(ismember(cluster_id,KSLabelfile.cluster_id)) = KSLabelfile.KSLabel(ismember(KSLabelfile.cluster_id,cluster_id));
-    Good_ID = ismember(cellstr(Label),'good'); %Identify good clusters
-    depth = nan(length(cluster_id),1);
-    for clusid=1:length(depth)
-        depth(clusid)=round(nanmean(spikeDepths(find(spikeCluster==clusid-1))));
-    end
-    myClusFile = dir(fullfile(myKsDir,'channel_map.npy'));
-    channelmap = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
-    myClusFile = dir(fullfile(myKsDir,'channel_positions.npy'));
-    channelpos = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
-    channelpos = channelpos(:,2);
-    
-    channel = nan(length(cluster_id),1);
-    for clusid=1:length(channel)
-        [minval,idx]=min(abs(depth(clusid)-channelpos));
-        channel(clusid) = channelmap(idx);
-    end
-    clusinfo.ch = channel;
-    clusinfo.depth = depth;
-    clusinfo.id = cluster_id;
-else
-    CurationDone = 1;
-    save(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'CuratedResults.mat'),'CurationDone')
-    clusinfo = tdfread(fullfile(myClusFile(1).folder,myClusFile(1).name));
-    
-    curratedflag=1;
-    if isfield(clusinfo,'id')
-        cluster_id = clusinfo.id;
-    elseif isfield(clusinfo,'cluster_id')
-        cluster_id=clusinfo.cluster_id;
-    else
-        keyboard
-        disp('Someone thought it was nice to change the name again...')
-    end
-    
-    % make sure cluster_id's match
-    myOtherClusFile = dir(fullfile(myKsDir,'cluster_group.tsv'));% 
-    cluster_groupOri = tdfread(fullfile(myOtherClusFile(1).folder,myOtherClusFile(1).name));
-  
-    KSLabel = clusinfo.KSLabel;
-    Label = clusinfo.group; % You want the group, not the KSLABEL!
-    depth = clusinfo.depth;
-    channel = clusinfo.ch;
-    Good_ID = ismember(cellstr(Label),'good'); %Identify good clusters
-    
-    % Make sure these two match
-    Label(~(ismember(cluster_id,cluster_groupOri.cluster_id)),:)
-    cluster_groupOri.group(~(ismember(cluster_groupOri.cluster_id,cluster_id)),:)
+% Check for multiple subfolders?
+subsesopt = dir(myKsDir);
+subsesopt(~[subsesopt.isdir])=[];
 
-    if ~((sum(ismember(cluster_groupOri.cluster_id,cluster_id))/length(cluster_groupOri.cluster_id))==1) && ~((sum(ismember(cluster_id,cluster_groupOri.cluster_id))/length(cluster_id))==1)
-        disp('Not the same amount of clusters!')
-        keyboard
+%% Initialize everything
+sp = cell(1,0);
+channelmap=[];
+channelpos = [];
+cluster_id = [];
+Label = [];
+Good_ID = [];
+depth = [];
+channel = [];
+Shank=[];
+recses = [];
+countid=1;
+% figure;
+cols = jet(length(subsesopt));
+for subsesid=1:length(subsesopt)
+    if isempty(dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'*.npy')))
+        continue
     end
     
+    thissubses = subsesopt(subsesid).name
+    %% Load Spike Data
+    sp{countid} = loadKSdir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name),params); % Load Spikes with PCs
+    [sp{countid}.spikeAmps, sp{countid}.spikeDepths, sp{countid}.templateDepths, sp{countid}.templateXpos, sp{countid}.tempAmps, sp{countid}.tempsUnW, sp{countid}.templateDuration, sp{countid}.waveforms] = templatePositionsAmplitudes(sp{countid}.temps, sp{countid}.winv, sp{countid}.ycoords, sp{countid}.xcoords, sp{countid}.spikeTemplates, sp{countid}.tempScalingAmps); %from the spikes toolbox
     
-%     [~,sortidx] =sort(cluster_id);
-%     [~,sortidx2] = sort(cluster_groupOri.cluster_id);
-%     A = cellstr(clusinfo.group(sortidx,:));
-%     B = cellstr(cluster_groupOri.group(sortidx2,:));
-%     A(find(~cell2mat(arrayfun(@(X) strcmp(A{X},B{X}),1:length(sortidx),'UniformOutput',0))))
-%     B(find(~cell2mat(arrayfun(@(X) strcmp(A{X},B{X}),1:length(sortidx),'UniformOutput',0))))
+    
+    %% Channel data
+    myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'channel_map.npy'));
+    channelmaptmp = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
+    
+    myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'channel_positions.npy'));
+    channelpostmp = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
+    
+    %% Load Cluster Info
+    myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'cluster_info.tsv'));
+    if isempty(myClusFile)
+        disp('This data is not yet curated with phy!!')
+        curratedflag=0;
+        myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'cluster_group.tsv'));
+        clusinfo = tdfread(fullfile(myClusFile(1).folder,myClusFile(1).name));
+        cluster_id = cat(1,cluster_id,clusinfo.cluster_id);
+        tmpLabel = char(length(clusinfo.cluster_id));
+        KSLabelfile = tdfread(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'cluster_KSLabel.tsv'));
+        tmpLabel(ismember(clusinfo.cluster_id,KSLabelfile.cluster_id)) = KSLabelfile.KSLabel(ismember(KSLabelfile.cluster_id,clusinfo.cluster_id));
+        Label = [Label,tmpLabel];
+        Good_ID = [Good_ID,ismember(tmpLabel,'g')]; %Identify good clusters
+        
+        % Find depth and channel
+        depthtmp = nan(length(clusinfo.cluster_id),1);
+        xtmp = nan(length(clusinfo.cluster_id),1);
+        channeltmp = nan(length(clusinfo.cluster_id),1);
+        for clusid=1:length(depthtmp)
+            depthtmp(clusid)=round(sp{countid}.templateDepths(clusid));%round(nanmean(sp{countid}.spikeDepths(find(sp{countid}.clu==clusid-1))));
+            xtmp(clusid)=sp{countid}.templateXpos(clusid);
+            [~,minidx] = min(cell2mat(arrayfun(@(X) pdist(cat(1,channelpostmp(X,:),[xtmp(clusid),depthtmp(clusid)]),'euclidean'),1:size(channelpostmp,1),'UniformOutput',0)));
+            channeltmp(clusid) = channelmaptmp(minidx);
+        end
+        depth = cat(1,depth, depthtmp);
+        channel = cat(1,channel,channeltmp);
+        
+    else
+        CurationDone = 1;
+        save(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'CuratedResults.mat'),'CurationDone')
+        clusinfo = tdfread(fullfile(myClusFile(1).folder,myClusFile(1).name));
+        
+        curratedflag=1;
+        if isfield(clusinfo,'id')
+            cluster_id = [cluster_id,clusinfo.id];
+        elseif isfield(clusinfo,'cluster_id')
+            cluster_id=[cluster_id,clusinfo.cluster_id];
+        else
+            keyboard
+            disp('Someone thought it was nice to change the name again...')
+        end
+        
+        % make sure cluster_id's match
+        myOtherClusFile = dir(fullfile(myKsDir,'cluster_group.tsv'));%
+        cluster_groupOri = tdfread(fullfile(myOtherClusFile(1).folder,myOtherClusFile(1).name));
+        
+        KSLabel = clusinfo.KSLabel;
+        Label = [Label,clusinfo.group]; % You want the group, not the KSLABEL!
+        depth = [depth,clusinfo.depth];
+        channel = [channel,clusinfo.ch];
+        Good_ID = [Good_ID,ismember(cellstr(clusinfo.group),'good')]; %Identify good clusters 
+        channeltmp = clusinfo.ch;
+    end
+    
+    ypostmp = channelpostmp(:,2);
+    xpostmp = channelpostmp(:,1);
+    xposopt = unique(floor(xpostmp./100).*100);% Assuming no new shank if not at least 100 micron apart
+    [~,minid] = arrayfun(@(X) min(abs(xpostmp(X)-xposopt)),channeltmp+1,'UniformOutput',0);
+    Shank = cat(1,Shank,cell2mat(minid)-1); 
+
+    recses = cat(1, recses, repmat(countid,length(channeltmp),1));
+    
+    channelpos = cat(1,channelpos,channelpostmp);
+    channelmap = cat(1,channelmap,channelmaptmp);
+    
+%     scatter(xtmp,depthtmp,10,cols(countid,:))
+%     hold on
+%     drawnow
+    countid=countid+1;
 
 end
+sp = [sp{:}];
+% Find correct dataset index
+spikeTimes =cat(1,sp(:).st);
+spikeSites = cat(1,sp(:).spikeTemplates);
+spikeCluster = cat(1,sp(:).clu);
+spikeAmps = cat(1,sp(:).spikeAmps);
+spikeDepths = cat(1,sp(:).spikeDepths);
+spikeShank = nan(length(spikeCluster),1);
+ShankOpt = unique(Shank);
+for shid = 1:length(ShankOpt)
+    spikeShank(ismember(spikeCluster,cluster_id(Shank==ShankOpt(shid)))) = shid;
+end
+templateDepths = cat(1,sp(:).templateDepths);
+tempAmps = cat(1,sp(:).tempAmps);
+tempsUnW = cat(1,sp(:).tempsUnW);
+templateDuration = cat(1,sp(:).templateDuration);
+waveforms = cat(1,sp(:).waveforms);
 
-% Find shank
-myClusFile = dir(fullfile(myKsDir,'channel_map.npy'));
-channelmap = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
 
-myClusFile = dir(fullfile(myKsDir,'channel_positions.npy'));
-channelpos = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
-
-% Shank options
-xpos = channelpos(:,1);
-Shank = round(xpos(channel+1)/200); % Assuming no new shank if not at least 200 micron apart
+%  [sp{countid}.spikeAmps, sp{countid}.spikeDepths, sp{countid}.templateDepths, sp{countid}.tempAmps, sp{countid}.tempsUnW, sp{countid}.templateDuration, sp{countid}.waveforms] 
 ShankOpt = unique(Shank);
 ShankID = nan(size(Shank));
 for id = 1:length(ShankOpt)
     ShankID(Shank==ShankOpt(id))=id;
 end
+clusinfo.Shank = Shank;
 clusinfo.ShankID = ShankID;
 Good_IDx = find(Good_ID);
+clusinfo.ch = channel;
+clusinfo.depth = depth;
+clusinfo.cluster_id = cluster_id;
+clusinfo.group = Label;
+clusinfo.Good_ID = Good_ID;

@@ -44,35 +44,51 @@ end
 %% LFP?
 LFP_On = 0;
 if nargin>7 && exist(LFPDir) && ~isempty(LFPDir)
-    % Get information from meta file
-    lfpD = dir(LFPDir);
-    [Imecmeta] = ReadMeta2(lfpD.folder,'lf');
-    lfpFs = str2num(Imecmeta.imSampRate);
-    nChansInFile = strsplit(Imecmeta.acqApLfSy,',');  % neuropixels phase3a, from spikeGLX
-    nChansInFile = str2num(nChansInFile{1})+1; %add one for sync
     freqBands = {[1.5 4], [4 10], [10 30], [30 80], [80 200]};
     FreqNames = {'Delta','Theta','Alpha','Beta','Gamma'};
-
-    try
-    [lfpByChannel, allPowerEst, F, allPowerVar] = ...
-        lfpBandPower(fullfile(lfpD.folder,lfpD.name), lfpFs, nChansInFile, freqBands);
-      allPowerEst = allPowerEst(:,1:nChansInFile)'; % now nChans x nFreq
     
-    LFP_On =1;
-    %normalize LFP per frequency
-    lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,1))./nanstd(lfpByChannel,[],1);
-    catch ME
-        disp(ME)
+    if ~isempty(strfind(LFPDir,'.lf')) % Saved out separately for NP1
+        % Get information from meta file
+        lfpD = dir(LFPDir);
+        [Imecmeta] = ReadMeta2(lfpD.folder,'lf');
+        lfpFs = str2num(Imecmeta.imSampRate);
+        nChansInFile = strsplit(Imecmeta.acqApLfSy,',');  % neuropixels phase3a, from spikeGLX
+        nChansInFile = str2num(nChansInFile{1})+1; %add one for sync
+        
+        try
+            [lfpByChannel, allPowerEst, F, allPowerVar] = ...
+                lfpBandPower(fullfile(lfpD.folder,lfpD.name), lfpFs, nChansInFile, freqBands);
+            allPowerEst = allPowerEst(:,1:nChansInFile)'; % now nChans x nFreq
+            
+            LFP_On =1;
+            %normalize LFP per frequency
+            lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,1))./nanstd(lfpByChannel,[],1);
+        catch ME
+            disp(ME)
             LFP_On =0;
-
+            
+        end
+          
+    elseif ~isempty(strfind(LFPDir,'.ap')) % Saved out in .ap for NP1
+        [lfpByChannel, allPowerEst, F, allPowerVar] = lfpBandPowerNP2(LFPDir,freqBands);
+        LFP_On=1;
+        %normalize LFP per frequency
+        lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,1))./nanstd(lfpByChannel,[],1);
+        
+    else
+        disp('No file found...')
+        LFP_On=0;
     end
 end
 
-%% Use templatePositionsAmplitudes from the Spikes toolbox
-[spikeAmps, spikeDepths, templateYpos, tempAmps, tempsUnW, tempDur, tempPeakWF] = ...
-    templatePositionsAmplitudes(sp.temps, sp.winv, sp.ycoords, sp.spikeTemplates, sp.tempScalingAmps);
-spikeCluster = sp.clu;
-spikeTimes = sp.st;
+%% Extract all fields in sp
+field=fieldnames(sp);
+for fn=1:length(field)
+    eval([field{fn} '= extractfield(sp,field{fn});'])
+end
+spikeCluster = clu;
+spikeTimes = st;
+
 
 %% Extract cluster info
 try
@@ -104,14 +120,18 @@ if nargin>4 && goodonly
     spikeID = ismember(spikeCluster,Good_ID);
 else
     spikeID = true(length(spikeCluster),1);
-    
-    % Some form of quality control
-    spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes<=quantile(clusinfo.n_spikes,0.01))))=0; %too little spikes
-    spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes>=quantile(clusinfo.n_spikes,0.99))))=0; %too many spikes
-    spikeID(ismember(spikeCluster,cluster_id(clusinfo.amp>=quantile(clusinfo.amp,0.99))))=0; %ridiculous amplitudes
-    spikeID(ismember(spikeCluster,cluster_id(clusinfo.fr>=quantile(clusinfo.fr,0.99))))=0; %ridiculous firing rates
-    spikeID(ismember(spikeCluster,cluster_id(clusinfo.ContamPct>=quantile(clusinfo.ContamPct,0.99))))=0; %ridiculous Contamination percentage
-    spikeID(ismember(spikeCluster,cluster_id(ismember(cellstr(Label),'noise'))))=0; %noise should not count, only MUA and good unit
+    try
+        % Some form of quality control
+        spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes<=quantile(clusinfo.n_spikes,0.01))))=0; %too little spikes
+        spikeID(ismember(spikeCluster,cluster_id(clusinfo.n_spikes>=quantile(clusinfo.n_spikes,0.99))))=0; %too many spikes
+        spikeID(ismember(spikeCluster,cluster_id(clusinfo.amp>=quantile(clusinfo.amp,0.99))))=0; %ridiculous amplitudes
+        spikeID(ismember(spikeCluster,cluster_id(clusinfo.fr>=quantile(clusinfo.fr,0.99))))=0; %ridiculous firing rates
+        spikeID(ismember(spikeCluster,cluster_id(clusinfo.ContamPct>=quantile(clusinfo.ContamPct,0.99))))=0; %ridiculous Contamination percentage
+        spikeID(ismember(spikeCluster,cluster_id(ismember(cellstr(Label),'noise'))))=0; %noise should not count, only MUA and good unit
+    catch
+        disp('This is non curated data, using only good units from kilosort output')
+        spikeID = ismember(spikeCluster,Good_ID);
+    end
 end
 
 %% Surface first?
@@ -181,13 +201,16 @@ startpoint = min(depthunique);
 
 %% Make LFP plot
 if LFP_On
-    LFP_axis = subplot(3,9,[1:2,10:11,19:20]);     
+    LFP_axis = subplot(3,9,[1:2,10:11,19:20]);
     
     %Infer depth per channel
     [sortedchannels,sortid] = unique(channel);
     sorteddepth = depth(sortid);
+    
+   
+    imagesc(1:length(FreqNames),sorteddepth, lfpByChannel(sortedchannels+1,:),[-2 2])
 
-    imagesc(1:length(FreqNames),[0:(nChansInFile-1)]*10,lfpByChannel,[-2 2])
+%     imagesc(1:length(FreqNames),[0:(nChansInFile-1)]*10,lfpByChannel,[-2 2])
     xlim([1,length(FreqNames)]);
     set(gca, 'YDir', 'normal','XTick',1:length(FreqNames),'XTicklabel',FreqNames,'XTickLabelRotation',25);
     ylabel('depth on probe (µm)');
@@ -200,7 +223,7 @@ if LFP_On
 end
 
 %% Get multiunit correlation - Copied from Petersen github
-n_corr_groups = 40;
+n_corr_groups = 80;
 depth_group_edges = linspace(startpoint,endpoint,n_corr_groups+1);
 depth_group = discretize(spikeDepths,depth_group_edges);
 depth_group_centers = depth_group_edges(1:end-1)+(diff(depth_group_edges)/2);
@@ -210,19 +233,27 @@ spike_binning = 0.5; % seconds
 corr_edges = nanmin(spikeTimes(spikeID==1)):spike_binning:nanmax(spikeTimes(spikeID==1));
 corr_centers = corr_edges(1:end-1) + diff(corr_edges);
 
-binned_spikes_depth = zeros(length(unique_depths),length(corr_edges)-1,nshanks);
 mua_corr = cell(1,nshanks);
 for shid = 1:nshanks
+    binned_spikes_depth = zeros(length(unique_depths),length(corr_edges)-1);
     parfor curr_depth = 1:length(unique_depths)
-        binned_spikes_depth(curr_depth,:,shid) = histcounts(spikeTimes(depth_group == unique_depths(curr_depth) & spikeID==1 & spikeShank==shid), corr_edges);
+        binned_spikes_depth(curr_depth,:) = histcounts(spikeTimes(depth_group == unique_depths(curr_depth) & spikeID'==1 & spikeShank'==shid), corr_edges);
     end
-    mua_corr{shid} = corrcoef(binned_spikes_depth(:,:,shid)');
+    %     % Z-score
+    %     binned_spikes_depth = (binned_spikes_depth - nanmean(binned_spikes_depth(:)))./nanstd(binned_spikes_depth(:));
+    
+    binned_spikes_depth(:,nansum(binned_spikes_depth,1)>quantile(nansum(binned_spikes_depth,1),0.95))=0;
+    mua_corr{shid} = smooth2a(corrcoef(binned_spikes_depth'),3);
 end
 mua_corr = cat(3,mua_corr{:});
 mua_corr = reshape(mua_corr,size(mua_corr,1),[]);
-limup = [quantile(mua_corr(:),0.1) quantile(mua_corr(:),0.8)];
+limup = [quantile(mua_corr(:),0.1) quantile(mua_corr(:),0.95)];
 % Plot multiunit correlation
-multiunit_ax = subplot(3,9,[3:5,12:14,21:23]);
+if LFP_On
+    multiunit_ax = subplot(3,9,[3:5,12:14,21:23]);
+else
+    multiunit_ax = subplot(3,9,[1:5,10:14,19:23]);
+end
 h=imagesc(1:length(depth_group_centers)*nshanks,depth_group_centers,mua_corr,limup);
 caxis([0,max(mua_corr(mua_corr~=1))]); colormap(hot);
 set(h,'Alphadata',~isnan(mua_corr))
@@ -670,7 +701,10 @@ while ~flag
         key = get(gcf,'CurrentKey');
     end
 end
+try
 close(f)
+catch
+end
 %% Shift area
 areasaligned = cell(nshanks,length(histinfo.RegionAcronym)/nshanks);
 for shid=1:nshanks

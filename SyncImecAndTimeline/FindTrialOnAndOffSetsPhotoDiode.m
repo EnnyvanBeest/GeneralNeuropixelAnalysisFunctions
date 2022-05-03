@@ -21,7 +21,7 @@ tmpdiff(tmpdiff~=1)=0;
 
 % If ITI times are unknown, take at least 10 flips
 if nargin<4
-    ITITimes = repmat(0.4,size(TrialDurations));
+    ITITimes = repmat(0.6,size(TrialDurations));
 end
 
 if nargin<5
@@ -49,9 +49,14 @@ linkaxes([ax1,ax2,ax3],'x')
 tmpdif = [0 diff(filtereddat==0)];
 starttrialidx = find(tmpdif==-1);
 endtrialidx = cell2mat(arrayfun(@(X) find(filtereddat(X:end)==0,1,'first')+X-1-WindowSize,starttrialidx,'UniformOutput',0));
+
 if length(endtrialidx)<length(starttrialidx)
     endtrialidx(length(endtrialidx)+1:length(starttrialidx)) = length(Actualtime);
 end
+takethis = (endtrialidx-starttrialidx)<nanmin(TrialDurations).*0.35.*tmSR==0;
+endtrialidx = endtrialidx(takethis);
+starttrialidx = starttrialidx(takethis);% ignore too early switches
+
 TrialDurationsTL = Actualtime(endtrialidx)-Actualtime(starttrialidx);
 
 for trialid = 1:length(starttrialidx)
@@ -172,36 +177,39 @@ drawnow
 ntrials = min([length(TrialDurations) length(TrialDurationsTL)]);
 if length(TrialDurations)~=length(TrialDurationsTL)
     display(['Cannot find the appropriate number of trials...'])
-    
-    [Cdur,Lagdur] = xcorr(TrialDurations',TrialDurationsTL);
-    [CIti,LagIti] = xcorr(ITITimes,ITIDurationsTL);
-    
-    [maxval,maxid1] = max(Cdur); Lagdur(maxid1)
-    [maxval,maxid2] = max(CIti); Lagdur(maxid2)
-    [maxval,maxid3] = max(CIti+Cdur*2); Lagdur(maxid3)
-    startedontrial = mode([Lagdur(maxid1) Lagdur(maxid2) Lagdur(maxid3)]);
-    
-    figure;
-    subplot(3,1,1); plot(Lagdur,Cdur); title('CrossCorrelation Trial Durations'); hold on; line([startedontrial, startedontrial],get(gca,'ylim'),'color',[0 0 0])
-    subplot(3,1,2); plot(LagIti,CIti); title('CrossCorrelation  ITIs'); hold on; line([startedontrial, startedontrial],get(gca,'ylim'),'color',[0 0 0])
-    subplot(3,1,3); plot(LagIti,CIti+Cdur); title('CrossCorrelation  Sum'); hold on; line([startedontrial, startedontrial],get(gca,'ylim'),'color',[0 0 0])
-    
-    starttrialidxnew = nan(1,length(TrialDurations));
-    endtrialidxnew = nan(1,length(TrialDurations));
-    
-    if startedontrial>=0
-        starttrialidxnew(startedontrial+1:startedontrial+ntrials) = starttrialidx(1:ntrials);
-        endtrialidxnew(startedontrial+1:startedontrial+ntrials) = endtrialidx(1:ntrials);
-        TrialDurationsTL = TrialDurationsTL(1:ntrials);
+    try
+        [Cdur,Lagdur] = xcorr(TrialDurations',TrialDurationsTL);
+        [CIti,LagIti] = xcorr(ITITimes,ITIDurationsTL);
         
-    else
-        starttrialidxnew(1:ntrials) = starttrialidx(-startedontrial+1:ntrials-startedontrial);
-        endtrialidxnew(1:ntrials) = endtrialidx(-startedontrial+1:ntrials-startedontrial);
-        TrialDurationsTL = TrialDurationsTL(-startedontrial+1:ntrials-startedontrial);
+        [maxval,maxid1] = max(Cdur); Lagdur(maxid1)
+        [maxval,maxid2] = max(CIti); Lagdur(maxid2)
+        [maxval,maxid3] = max(CIti+Cdur*2); Lagdur(maxid3)
+        startedontrial = mode([Lagdur(maxid1) Lagdur(maxid2) Lagdur(maxid3)]);
+        
+        figure;
+        subplot(3,1,1); plot(Lagdur,Cdur); title('CrossCorrelation Trial Durations'); hold on; line([startedontrial, startedontrial],get(gca,'ylim'),'color',[0 0 0])
+        subplot(3,1,2); plot(LagIti,CIti); title('CrossCorrelation  ITIs'); hold on; line([startedontrial, startedontrial],get(gca,'ylim'),'color',[0 0 0])
+        subplot(3,1,3); plot(LagIti,CIti+Cdur); title('CrossCorrelation  Sum'); hold on; line([startedontrial, startedontrial],get(gca,'ylim'),'color',[0 0 0])
+        
+        starttrialidxnew = nan(1,length(TrialDurations));
+        endtrialidxnew = nan(1,length(TrialDurations));
+        
+        if startedontrial>=0
+            starttrialidxnew(startedontrial+1:startedontrial+ntrials) = starttrialidx(1:ntrials);
+            endtrialidxnew(startedontrial+1:startedontrial+ntrials) = endtrialidx(1:ntrials);
+            TrialDurationsTL = TrialDurationsTL(1:ntrials);
+            
+        else
+            starttrialidxnew(1:ntrials) = starttrialidx(-startedontrial+1:ntrials-startedontrial);
+            endtrialidxnew(1:ntrials) = endtrialidx(-startedontrial+1:ntrials-startedontrial);
+            TrialDurationsTL = TrialDurationsTL(-startedontrial+1:ntrials-startedontrial);
+        end
+        starttrialidx=starttrialidxnew;
+        endtrialidx = endtrialidxnew;
+    catch ME
+        disp(ME)
+        return
     end
-    starttrialidx=starttrialidxnew;
-    endtrialidx = endtrialidxnew;
-    
 end
 
 

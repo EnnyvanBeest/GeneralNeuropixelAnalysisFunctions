@@ -3,7 +3,6 @@ histoflag = 0;
 if ~exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
     mkdir(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
 end
-
 if exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat')) && ~NewHistologyNeeded
     tmpfile = load(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe,'HistoEphysAlignment.mat'));
     try
@@ -47,7 +46,7 @@ if ~histodone %Just in case it's not done yet
             % corresponding to this:
             trackcoordinates = arrayfun(@(X) readNPY(fullfile(histofile(X).folder,strrep(histofile(X).name,'.csv','.npy'))),1:length(histofile),'UniformOutput',0);
             % Align ephys data with probe
-            if ~isempty(lfpD)
+            if exist('lfpD') && ~isempty(lfpD)
                 Depth2AreaPerUnit  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,0,0,fullfile(lfpD.folder,lfpD.name),2,trackcoordinates);
             else
                 Depth2AreaPerUnit  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,0,0,[],2,trackcoordinates);
