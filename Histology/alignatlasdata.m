@@ -35,7 +35,11 @@ function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,go
 
 %% Check inputs
 if ~iscell(histinfo)
+    try
     histinfo{1} = histinfo;
+    catch
+        histinfo = {histinfo};
+    end    
 end
 if nargin>8 && ~iscell(trackcoordinates)
     trackcoordinates{1} = trackcoordinates;
@@ -186,8 +190,8 @@ if nargin>8
     end
     legend([h(:)],arrayfun(@(X) ['Shank ' num2str(X)],1:length(trackcoordinates),'UniformOutput',0))
     title('These Shanks should be in the right order, if not order histinfo accordingly')
+    DProbe = nanmax(DistProbe);
 end
-DProbe = nanmax(DistProbe);
 %% Open gui figure
 gui_fig = figure('color','w');
 flag = 0; %to keep track of finishing this loop
@@ -293,7 +297,12 @@ for shid = 1:length(histinfo)
 end
 histinfo = histinfonew;
 clear histinfonew
-DifPr = (DProbe-endpoint);
+if coordinateflag
+    DifPr = (DProbe-endpoint);
+else
+    DifPr = (startpoint-endpoint);
+    
+end
 if DifPr<0
     DifPr=0;
 end
@@ -301,8 +310,8 @@ end
 while ~flag
     %Now divide position of probe along this track
     if istable(histinfo)&& any(histinfo.Position)
-        histinfo.RegionAcronym(ismember(histinfo.RegionAcronym,'Not found in brain')) = {'root'};
-        for shid = 1:nshanks
+        histinfo.RegionAcronym(ismember(histinfo.RegionAcronym,'Not found in brain')| ismember(histinfo.RegionAcronym,'void')) = {'root'};
+           for shid = 1:nshanks
             if ~surfacefirst
                 if coordinateflag
                     areapoints{shid} = linspace(0-DifPr,endpoint,sum(histinfo.shank==shid));
@@ -730,7 +739,7 @@ for shid=1:nshanks
         clustercoord(idx) = num2cell(newtrackcoordinates{shid}(cell2mat(tmp(idx)),:),2);
         Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid),depth(ShankID==shid),ShankID(ShankID==shid),clusterarea',clustercolor',clustercoord','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color','Coordinates'});
     else
-        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid),depth(ShankID==shid),clusterarea',clustercolor','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color'});
+        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid),depth(ShankID==shid),ShankID(ShankID==shid),clusterarea',clustercolor','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color'});
     end
 end
 Depth2AreaPerUnit=cat(1,Depth2AreaPerUnit{:});

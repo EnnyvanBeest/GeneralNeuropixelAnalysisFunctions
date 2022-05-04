@@ -53,15 +53,27 @@ if ~histodone %Just in case it's not done yet
             end
         end
     else
-        disp('This doesn''t work yet')
-        keyboard
         histoflag=1;
         histinfo = fileread(fullfile(histofile(1).folder,histofile(1).name)); %Read json file
         histinfo = jsondecode(histinfo);% Decode json text
-        fullfile(fullfile(histofile(1).folder,histofile(1).name))
         
+        % Make new type table of this
+        AllCh = fieldnames(histinfo);
+        histinfonew = cell(length(AllCh)-1,4);
+        for id = 1:length(AllCh)
+            if strcmp(AllCh{id},'origin')
+                continue
+            end
+            eval(['histinfonew(id,1) = {' num2str(id) '};'])
+            eval(['histinfonew(id,2) = {histinfo.' AllCh{id} '.brain_region_id};'])
+            eval(['histinfonew(id,3) = {histinfo.' AllCh{id} '.brain_region};']) 
+            eval(['histinfonew(id,4) = {histinfo.' AllCh{id} '.brain_region};'])
+        end
+        histinfonew = cell2table(histinfonew);
+        histinfonew.Properties.VariableNames = {'Position','RegionID','RegionAcronym','RegionName'};
+
         % Align ephys data with probe
-        Depth2AreaPerUnit  = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,1,0,1);
+        Depth2AreaPerUnit  = alignatlasdata(histinfonew,AllenCCFPath,sp,clusinfo,0,0,fullfile(lfpD.folder,lfpD.name),2);
     end
 end
 if histoflag && ~histodone
