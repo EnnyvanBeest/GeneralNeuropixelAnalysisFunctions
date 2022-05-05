@@ -115,9 +115,11 @@ for subsesid=1:length(subsesopt)
     
     ypostmp = channelpostmp(:,2);
     xpostmp = channelpostmp(:,1);
-    xposopt = unique(floor(xpostmp./100).*100);% Assuming no new shank if not at least 100 micron apart
-    [~,minid] = arrayfun(@(X) min(abs(xpostmp(X)-xposopt)),channeltmp+1,'UniformOutput',0);
-    Shank = cat(1,Shank,cell2mat(minid)-1); 
+    xposopt = (floor(xpostmp./250));% Assuming no new shank if not at least 100 micron apart
+    Shanktmp = floor(xpostmp(channeltmp+1)./250);
+    
+%     [~,minid] = arrayfun(@(X) (abs(floor(xpostmp(X)./250)-xposopt)),channeltmp+1,'UniformOutput',0);
+    Shank = cat(1,Shank,Shanktmp); 
 
     recses = cat(1, recses, repmat(countid,length(channeltmp),1));
     
