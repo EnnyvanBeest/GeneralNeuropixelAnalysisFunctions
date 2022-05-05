@@ -37,7 +37,7 @@ for recordingsessionidx = 1:length(lfpDAll)
                 continue
             end
             
-            [dataArray,samplerate,starttime,endtime] = ReadSGLXData(mySyncFile(idx).name,mySyncFile(idx).folder,length(Actualtime)./tmSR,find(ismember({allsess(:).name},thisses))); %1 To sync with NP, 2 acquire live, 3 flipper
+            [dataArray,samplerate,stime,endtime] = ReadSGLXData(mySyncFile(idx).name,mySyncFile(idx).folder,length(Actualtime)./tmSR,find(ismember({allsess(:).name},thisses))); %1 To sync with NP, 2 acquire live, 3 flipper
             
             % Match this to the flipper signal
             FlipperGLX = dataArray(3,:);
@@ -72,6 +72,7 @@ for recordingsessionidx = 1:length(lfpDAll)
             
             %IMEC PULSE
             syncChanIndex = 385;
+            nChansInFile = 384;
             syncDatImec = extractSyncChannel(lfpD(idx).folder, nChansInFile, syncChanIndex); %Make sure extract sync channel read in ap data, not lf
             [Imecmeta] = (ReadMeta2(lfpD(idx).folder));
             
@@ -80,7 +81,7 @@ for recordingsessionidx = 1:length(lfpDAll)
             syncDatImec(syncDatImec<tmpmean)=0;
             syncDatImec(syncDatImec>tmpmean)=1;
             
-            startidx = floor(starttime*str2double(Imecmeta.imSampRate));
+            startidx = floor(stime*str2double(Imecmeta.imSampRate));
             if startidx<1
                 startidx=1;
             end
@@ -202,9 +203,9 @@ for recordingsessionidx = 1:length(lfpDAll)
                 
                 %Find spikes in IMEC time, that fall in this window in
                 %TIMELINE space
-                spikeindx = find(spikeTimestmp>=TL2ImecTime+starttime+(i-1)&spikeTimestmp<=TL2ImecTime+starttime+(i+per2check-1));
+                spikeindx = find(spikeTimestmp>=TL2ImecTime+stime+(i-1)&spikeTimestmp<=TL2ImecTime+stime+(i+per2check-1));
                 if ~isempty(spikeindx)
-                    spikeTimesCorrected(spikeindx)=spikeTimestmp(spikeindx)-starttime+Imec2TLTime;
+                    spikeTimesCorrected(spikeindx)=spikeTimestmp(spikeindx)-stime+Imec2TLTime;
                 end
                 drawnow
             end

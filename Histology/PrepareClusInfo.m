@@ -26,7 +26,7 @@ for subsesid=1:length(subsesopt)
         continue
     end
     
-    thissubses = subsesopt(subsesid).name
+    thissubses = str2num(subsesopt(subsesid).name)
     %% Load Spike Data
     sp{countid} = loadKSdir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name),params); % Load Spikes with PCs
     [sp{countid}.spikeAmps, sp{countid}.spikeDepths, sp{countid}.templateDepths, sp{countid}.templateXpos, sp{countid}.tempAmps, sp{countid}.tempsUnW, sp{countid}.templateDuration, sp{countid}.waveforms] = templatePositionsAmplitudes(sp{countid}.temps, sp{countid}.winv, sp{countid}.ycoords, sp{countid}.xcoords, sp{countid}.spikeTemplates, sp{countid}.tempScalingAmps); %from the spikes toolbox
@@ -39,6 +39,26 @@ for subsesid=1:length(subsesopt)
     myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'channel_positions.npy'));
     channelpostmp = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
     
+    %% Is it correct channelpos though...?    
+    myLFDir = fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate,'ephys');
+    lfpD = dir(fullfile(myLFDir,'*','*','*.lf.*bin')); % ap file from spikeGLX specifically
+    if isempty(lfpD)
+        lfpD = dir(fullfile(myLFDir,'*','*','*.ap.*bin')); % ap file from spikeGLX specifically
+    end
+    
+    if isempty(lfpD)
+        disp('No LFP data found')
+    elseif length(lfpD)>length(subksdirs)
+        disp('Just take data from the last recording')
+        lfpD = lfpD((thissubses));
+    elseif length(lfpD)<length(subksdirs)
+        disp('Should be a different amount of probes?')
+        keyboard
+    else
+        lfpD = lfpD(probeid);
+    end
+    
+    channelpostmp = ChannelIMROConversion(lfpD.folder,1);
     %% Load Cluster Info
     myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'cluster_info.tsv'));
     if isempty(myClusFile)
