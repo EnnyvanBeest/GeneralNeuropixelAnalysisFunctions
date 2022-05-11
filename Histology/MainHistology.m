@@ -1,3 +1,7 @@
+%% User Input
+NewHistologyNeeded = 0; %Automatically to 1 after RedoAfterClustering
+RedoAfterClustering=1;
+
 %% Automated
 % Load all data
 % Find available datasets (always using dates as folders)
@@ -8,8 +12,7 @@ end
 DateOpt = cat(2,DateOpt{:});
 DateOpt = cellfun(@(X) X([X.isdir]),DateOpt,'UniformOutput',0);
 DateOpt = cellfun(@(X) {X.name},DateOpt,'UniformOutput',0);
-RedoAfterClustering=1;
-NewHistologyNeeded = 0; %Automatically to 1 after RedoAfterClustering
+NewHistologyNeededOri = NewHistologyNeeded;
 
 for midx = 1:length(MiceOpt)
     %% which probes?
@@ -80,7 +83,7 @@ for midx = 1:length(MiceOpt)
     else
         % For every date a different dataset
         Dates4Mouse = DateOpt{midx};
-        for didx = 1:length(Dates4Mouse)
+        for didx = 29%1:length(Dates4Mouse)
             % Within folders, look for 'RF mapping sessions'
             thisdate = Dates4Mouse{didx};
             %% Loading data from kilosort/phy easily
@@ -120,7 +123,7 @@ for midx = 1:length(MiceOpt)
                 
                 %% Get LFP?
                 myLFDir = fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate,'ephys');
-                lfpD = dir(fullfile(myLFDir,'*','*','*.lf.*bin')); % ap file from spikeGLX specifically
+                lfpD = dir(fullfile([myLFDir '*'], '**\*.lf.*bin')); % lf file from spikeGLX specifically
                 if isempty(lfpD)
                     disp('No LFP data found')
                 elseif length(lfpD)~=length(subksdirs)
@@ -136,6 +139,8 @@ for midx = 1:length(MiceOpt)
                     disp([MiceOpt{midx} ' ' thisdate ' ' thisprobe 'No histology data, skip...'])
                     continue
                 end
+                
+                NewHistologyNeeded = NewHistologyNeededOri;
             end
         end
     end

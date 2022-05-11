@@ -38,12 +38,14 @@ for subsesid=1:length(subsesopt)
     
     myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'channel_positions.npy'));
     channelpostmp = readNPY(fullfile(myClusFile(1).folder,myClusFile(1).name));
-    
+    if length(channelmaptmp)<length(channelpostmp)
+        channelmaptmp(end+1:length(channelpostmp))=length(channelmaptmp):length(channelpostmp)-1;
+    end
     %% Is it correct channelpos though...?    
     myLFDir = fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},thisdate,'ephys');
-    lfpD = dir(fullfile(myLFDir,'*','*','*.lf.*bin')); % ap file from spikeGLX specifically
+    lfpD = dir(fullfile([myLFDir '*'], '**\*.lf.*bin')); % ap file from spikeGLX specifically
     if isempty(lfpD)
-        lfpD = dir(fullfile(myLFDir,'*','*','*.ap.*bin')); % ap file from spikeGLX specifically
+    lfpD = dir(fullfile([myLFDir '*'], '**\*.ap.*bin')); % ap file from spikeGLX specifically
     end
     
     if isempty(lfpD)
@@ -58,7 +60,9 @@ for subsesid=1:length(subsesopt)
         lfpD = lfpD(probeid);
     end
     
-    channelpostmp = ChannelIMROConversion(lfpD.folder,1);
+    if strcmp(ProbeType,'2_4S')
+        channelpostmp = ChannelIMROConversion(lfpD.folder,1); % For conversion when not automatically done
+    end
     %% Load Cluster Info
     myClusFile = dir(fullfile(subsesopt(subsesid).folder,subsesopt(subsesid).name,'cluster_info.tsv'));
     if isempty(myClusFile)
@@ -81,7 +85,12 @@ for subsesid=1:length(subsesopt)
             depthtmp(clusid)=round(sp{countid}.templateDepths(clusid));%round(nanmean(sp{countid}.spikeDepths(find(sp{countid}.clu==clusid-1))));
             xtmp(clusid)=sp{countid}.templateXpos(clusid);
             [~,minidx] = min(cell2mat(arrayfun(@(X) pdist(cat(1,channelpostmp(X,:),[xtmp(clusid),depthtmp(clusid)]),'euclidean'),1:size(channelpostmp,1),'UniformOutput',0)));
-            channeltmp(clusid) = channelmaptmp(minidx);
+            try
+                channeltmp(clusid) = channelmaptmp(minidx);
+            catch
+                channeltmp(clusid)=channeltmp(minidx-1);
+            end
+
         end
         depth = cat(1,depth, depthtmp);
         channel = cat(1,channel,channeltmp);

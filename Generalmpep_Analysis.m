@@ -3,7 +3,7 @@
 % Find available datasets (always using dates as folders)
 
 RedoAfterClustering=1;
-Redo =1; % Redo in general
+Redo =0; % Redo in general
 RedoTable=1;
 NewHistologyNeeded = 0; %Automatically to 1 after RedoAfterClustering
 %Predefine
@@ -631,11 +631,12 @@ if ~RedoTable || ~exist(fullfile(SaveDir,'AllMiceMPEPData.mat'))
                     TrialInfo.Probe = repmat(['Probe' ProbeId{2}],ntrials,1);
                    
                     % Add area to mpepinfo table
+                    if isfield(tmp,'Depth2AreaPerUnit')
                     tmp.MpepInfo.Area = tmp.Depth2AreaPerUnit.Area(ismember(tmp.Depth2AreaPerUnit.Cluster_ID,tmp.MpepInfo.ClusID));
                     tmp.MpepInfo.Area  = strrep(tmp.MpepInfo.Area,'/','');
                     
                     tmp.MpepInfo.Color = tmp.Depth2AreaPerUnit.Color(ismember(tmp.Depth2AreaPerUnit.Cluster_ID,tmp.MpepInfo.ClusID));
-
+                    end
                     % Add session&mouse&probe information
                     tmp.MpepInfo.Mouse = repmat(MiceOpt{midx},length(tmp.MpepInfo.ClusID),1);
                     tmp.MpepInfo.Date = repmat(thisdate,length(tmp.MpepInfo.ClusID),1);

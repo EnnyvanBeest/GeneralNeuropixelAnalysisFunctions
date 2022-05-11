@@ -118,7 +118,9 @@ end
 depth = clusinfo.depth;
 channel = clusinfo.ch;
 Good_ID = find(ismember(cellstr(Label),'good')); %Identify good clusters
-
+if isempty(Good_ID)
+    Good_ID = find(ismember(Label,'g')); %Identify good clusters
+end
 %% Select only good units to clean up MUA
 if nargin>4 && goodonly
     spikeID = ismember(spikeCluster,Good_ID);
@@ -160,9 +162,19 @@ coordinateflag =0;
 if nargin>8
     coordinateflag = 1;
     figure
+    % Sometimes trackcoordinates are saved in a weird order by
+
+    
     cols = lines(length(trackcoordinates));
     DistProbe = nan(1,length(trackcoordinates));
     for trid = 1:length(trackcoordinates)
+        % brainglobe. Try to correct that here:
+        [~,maxid]=max(nanvar(trackcoordinates{trid},[],1)); %Sort in the dimension with largest variance
+        [~,sortidx]=sort(trackcoordinates{trid}(:,maxid),'descend');
+        
+        trackcoordinates{trid} = trackcoordinates{trid}(sortidx,:);
+        histinfo{trid} = histinfo{trid}(sortidx,:);
+        
         X_ave=mean(trackcoordinates{trid},1);            % mean; line of best fit will pass through this point
         dX=bsxfun(@minus,trackcoordinates{trid},X_ave);  % residuals
         C=(dX'*dX)/(size(trackcoordinates{trid},1)-1);           % variance-covariance matrix of X
@@ -241,7 +253,7 @@ mua_corr = cell(1,nshanks);
 for shid = 1:nshanks
     binned_spikes_depth = zeros(length(unique_depths),length(corr_edges)-1);
     parfor curr_depth = 1:length(unique_depths)
-        binned_spikes_depth(curr_depth,:) = histcounts(spikeTimes(depth_group == unique_depths(curr_depth) & spikeID'==1 & spikeShank'==shid), corr_edges);
+        binned_spikes_depth(curr_depth,:) = histcounts(spikeTimes(depth_group == unique_depths(curr_depth) & spikeID==1 & spikeShank'==shid), corr_edges);
     end
     %     % Z-score
     %     binned_spikes_depth = (binned_spikes_depth - nanmean(binned_spikes_depth(:)))./nanstd(binned_spikes_depth(:));
