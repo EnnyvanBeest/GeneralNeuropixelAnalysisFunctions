@@ -48,8 +48,8 @@ end
 %% LFP?
 LFP_On = 0;
 if nargin>7 && exist(LFPDir) && ~isempty(LFPDir)
-    freqBands = {[1.5 4], [4 10], [10 30], [30 80], [80 200]};
-    FreqNames = {'Delta','Theta','Alpha','Beta','Gamma'};
+    freqBands = {[1.5 4], [4 12], [12 20], [20 30], [25 100],[150 200]};
+    FreqNames = {'Delta','Theta','Alpha','Beta','Gamma','Ripples'};
     
     if ~isempty(strfind(LFPDir,'.lf')) % Saved out separately for NP1
         % Get information from meta file
@@ -67,6 +67,8 @@ if nargin>7 && exist(LFPDir) && ~isempty(LFPDir)
             LFP_On =1;
             %normalize LFP per frequency
             lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,1))./nanstd(lfpByChannel,[],1);
+                %normalize LFP per channel
+            lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,2))./nanstd(lfpByChannel,[],2);
         catch ME
             disp(ME)
             LFP_On =0;
@@ -78,7 +80,8 @@ if nargin>7 && exist(LFPDir) && ~isempty(LFPDir)
         LFP_On=1;
         %normalize LFP per frequency
         lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,1))./nanstd(lfpByChannel,[],1);
-        
+        lfpByChannel = (lfpByChannel-nanmean(lfpByChannel,2))./nanstd(lfpByChannel,[],2);                %normalize LFP per channel
+
     else
         disp('No file found...')
         LFP_On=0;
@@ -139,7 +142,9 @@ else
         spikeID = ismember(spikeCluster,Good_ID);
     end
 end
-
+if size(spikeID,2)==1
+    spikeID=spikeID';
+end
 %% Surface first?
 if nargin<6
     surfacefirst = 0;

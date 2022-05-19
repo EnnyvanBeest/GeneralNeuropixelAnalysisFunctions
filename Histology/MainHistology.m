@@ -1,5 +1,5 @@
 %% User Input
-NewHistologyNeeded = 0; %Automatically to 1 after RedoAfterClustering
+NewHistologyNeeded = 1; %Automatically to 1 after RedoAfterClustering
 RedoAfterClustering=1;
 
 %% Automated
@@ -83,7 +83,7 @@ for midx = 1:length(MiceOpt)
     else
         % For every date a different dataset
         Dates4Mouse = DateOpt{midx};
-        for didx = 29%1:length(Dates4Mouse)
+        for didx = 1:length(Dates4Mouse)
             % Within folders, look for 'RF mapping sessions'
             thisdate = Dates4Mouse{didx};
             %% Loading data from kilosort/phy easily
