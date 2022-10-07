@@ -12,11 +12,9 @@
 % pip install mtscomp
 % pip install numpy
 % pip install tqdm
-try
+
 pyversion('C:\Users\experiment\.conda\envs\compression\pythonw.exe') %Point at correct Anaconda/python location!
-catch ME
-    disp(ME)
-end
+
 % That's it for python. You can close it now. This only has to be done
 % once. 
 

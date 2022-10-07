@@ -1,12 +1,12 @@
 from pathlib import Path
-import matlab
+#import matlab
 import numpy as np
 from mtscomp import compress
 
 def MTSCOMPRESSION_From_Matlab(datapath,JsonPath,savepath):
 	
 	# Use decompress from mtscomp
-	compress(datapath,outmeta=JsonPath,out=savepath, check_after_compress = True)
+	compress(datapath,outmeta=JsonPath,out=savepath, sample_rate=30000., n_channels=385,dtype=np.int16, check_after_compress = True)
 	
 	success=1
 	#print(chunk)
