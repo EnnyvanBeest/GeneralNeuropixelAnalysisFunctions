@@ -33,13 +33,17 @@ end
 addpath(genpath(fileparts(mfilename('fullpath')))) % Add subdirectories
 LocalDir = 'E:\spikeglx_recordings\' % This is your local directory. The assumption is that all data here will have to be compressed and moved to the server
 ServerDir = '\\zaru.cortexlab.net\Subjects\'
-XCloneDays = 3; % The number of days on the server after which we can assume a clone has been made
+XCloneDays = 2; % The number of days on the server after which we can assume a clone has been made
 TurnOffDesktop = 1; % Turn off this PC after running the script
 
 % Find all folders with bin files
 localEphysFiles = dir(fullfile(LocalDir,'**','*.ap.bin'));
 if isempty(localEphysFiles)
     fprintf('There are no ephys files in the local directory...')
+    if TurnOffDesktop
+        disp('Great, we''re done. Let''s turn of the computer for now...')
+        system('shutdown -s')
+    end
     return
 end
 
@@ -52,8 +56,8 @@ for fid = 1:length(localEphysFiles)
     % Find a subject in this (assumed format: e.g. EB001)
     thisSubj = fileParts{find(cell2mat(cellfun(@(X) length(X)==5,fileParts,'Uni',0)))};
 
-    EphysServerFolder = fullfile(ServerDir,thisSubj,thisDate,'ephys\');
-    if ~exist('EphysServerFolder')
+    EphysServerFolder = strrep(localEphysFiles(fid).folder,LocalDir,fullfile(ServerDir,thisSubj,thisDate,'ephys\'));
+    if ~exist(EphysServerFolder)
         mkdir(EphysServerFolder) % Create ephys directory on server if not yet exists
     end
     
@@ -83,9 +87,8 @@ for fid = 1:length(localEphysFiles)
         end
 
         if Ok2DeleteLocal % Delete local copy
-            keyboard
             disp(['All seems good, delete local copy...'])
-            delete(LocalFile)
+            rmdir(LocalFile.folder, 's')
         end
 
     else % This is the compress & copy loop
@@ -110,8 +113,8 @@ for fid = 1:length(localEphysFiles)
             tmpfiles(cell2mat(cellfun(@(X) any(strfind(X,'ap.bin')),{tmpfiles(:).name},'Uni',0)))=[]; %remove the raw bin file from this list
             tmpfiles(cell2mat(arrayfun(@(X) ismember(tmpfiles(X).name,{'.','..'}),1:length(tmpfiles),'Uni',0)))=[];
 
-            % Copy the rest to server 
-            arrayfun(@(X) copyfile(fullfile(tmpfiles(X).folder,tmpfiles(X).name),fullfile(strrep(tmpfiles(X).folder,LocalDir,EphysServerFolder),tmpfiles(X).name)),1:length(tmpfiles),'Uni',0)
+            % Copy the rest to server
+            arrayfun(@(X) copyfile(fullfile(tmpfiles(X).folder,tmpfiles(X).name),fullfile(EphysServerFolder,tmpfiles(X).name)),1:length(tmpfiles),'Uni',0)
         else
             keyboard
         end
