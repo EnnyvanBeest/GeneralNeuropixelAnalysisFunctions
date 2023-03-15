@@ -9,6 +9,7 @@ SaveRFDir = SaveDir
 abortsession = 0;
 nboot = 100;
 drawthis = 1;
+clear Depth2AreaPerUnit
 %% Automated
 clear DateOpt
 for idx = 1:length(DataDir)
@@ -312,7 +313,7 @@ for midx = 1:length(MiceOpt)
                 else
                     % move everything in this directory to subdirectory
                     % with 'old'
-                    movefile(fullfile(SaveRFDir,MiceOpt{midx},thisdate,thisses,thisprobe),fullfile(SaveRFDir,MiceOpt{midx},thisdate,thisses,thisprobe,'old'))
+%                     movefile(fullfile(SaveRFDir,MiceOpt{midx},thisdate,thisses,thisprobe),fullfile(SaveRFDir,MiceOpt{midx},thisdate,thisses,thisprobe,'old'))
                 end
                 
                 %% Computing some useful details about spikes/neurons (like depths)
@@ -372,18 +373,22 @@ for midx = 1:length(MiceOpt)
                     disp('Less than 2 good units, skip...')
                     continue
                 end
-                
-                % Prepare spikecounts per unit according to actualtime X units
-                SpikeCountPerTP = zeros(length(newtimevec),length(Good_IDx));
-                parfor clusid = 1:length(Good_IDx)
-                    clusid
-                    SpikesThisCluster = spikeTimesCorrected(spikeCluster'== cluster_id(Good_IDx(clusid)));
-                    if isempty(SpikesThisCluster)
-                        continue
-                    end
-                    % spikecount per stimulus presentation time point,
-                    SpikeCountPerTP(:,clusid) = histcounts(SpikesThisCluster,newtimebins);
-                end
+
+                %% Divide spike times in trials and clusters
+
+                SpikeCountPerTP = arrayfun(@(X) histcounts(spikeTimesCorrected(spikeCluster'==X),newtimebins),cluster_id(Good_IDx),'UniformOutput',0);
+                SpikeCountPerTP = cat(1,SpikeCountPerTP{:})';
+%                 % Prepare spikecounts per unit according to actualtime X units
+%                 SpikeCountPerTP = zeros(length(newtimevec),length(Good_IDx));
+%                 parfor clusid = 1:length(Good_IDx)
+%                     clusid
+%                     SpikesThisCluster = spikeTimesCorrected(spikeCluster'== cluster_id(Good_IDx(clusid)));
+%                     if isempty(SpikesThisCluster)
+%                         continue
+%                     end
+%                     % spikecount per stimulus presentation time point,
+%                     SpikeCountPerTP(:,clusid) = histcounts(SpikesThisCluster,newtimebins);
+%                 end
                 
                 %RunningSpeed
                 RotarySignal = (Timeline(:,ismember(AllInputs,'rotaryEncoder')));
@@ -524,6 +529,16 @@ for midx = 1:length(MiceOpt)
                         okay = 1;
                     end
                 end
+
+                %% Z-score
+                RFAll = reshape(RFAll,newY*newX,[]);
+                RFAll = reshape((RFAll-nanmean(RFAll,1))./nanstd(RFAll,[],1),newY,newX,[]);
+
+                RFON = reshape(RFON,newY*newX,[]);
+                RFON = reshape((RFON-nanmean(RFON,1))./nanstd(RFON,[],1),newY,newX,[]);
+
+                RFOFF = reshape(RFOFF,newY*newX,[]);
+                RFOFF = reshape((RFOFF-nanmean(RFOFF,1))./nanstd(RFOFF,[],1),newY,newX,[]);
                 if breaksession
                     continue
                 end
@@ -543,72 +558,65 @@ for midx = 1:length(MiceOpt)
                 [x0(:,1),id] = nanmax(reshape(RFAll,[],length(InclUnits)),[],1); % Initial guess [Amplitude, x0, sigmax, y0, sigmay, angel(rad)]
                 x0(:,2) = X(id);
                 x0(:,4) = Y(id);
-                [thisparamsAll,~,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFAll(:,:,Z),lb,ub,options),...
+                [thisparamsAll,resnormAll,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFAll(:,:,Z),lb,ub,options),...
                     1:length(InclUnits),'UniformOutput',0);
                 thisparamsAll = cat(1,thisparamsAll{:});
-                
+                resnormAll = cat(1,resnormAll{:});
                 % predicted values
-                pred = arrayfun(@(Z) D2GaussFunctionRot(thisparamsAll(Z,:),cat(3,X,Y)),1:length(InclUnits),'UniformOutput',0);
-                pred = cat(3,pred{:});
-                
-                % residual
-                residual = reshape(RFAll-pred,[],length(InclUnits))./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
+                       % residual
+%                 residual = reshape(RFAll-pred,[],length(InclUnits));%./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
                 % RFs
-                resnormAll = sum(residual.^2,1);
+%                 resnormAll2 = sum(residual.^2,1);
                 
                 x0 = thisparamsAll; %replace initial parameters to save time
-                [thisparamsON,~,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFON(:,:,Z),lb,ub,options),...
+                [thisparamsON,resnormON,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFON(:,:,Z),lb,ub,options),...
                     1:length(InclUnits),'UniformOutput',0);
                 thisparamsON = cat(1,thisparamsON{:});
+                resnormON = cat(1,resnormON{:});
+
                 % predicted values
-                pred = arrayfun(@(Z) D2GaussFunctionRot(thisparamsON(Z,:),cat(3,X,Y)),1:length(InclUnits),'UniformOutput',0);
-                pred = cat(3,pred{:});
-                
-                % residual
-                residual = reshape(RFON-pred,[],length(InclUnits))./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
-                resnormON = sum(residual.^2,1);
-                
-                [thisparamsOFF,~,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFOFF(:,:,Z),lb,ub,options),...
+                    % residual
+%                 residual = reshape(RFON-pred,[],length(InclUnits));%./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
+%                 resnormON = sum(residual.^2,1);
+%                 
+                [thisparamsOFF,resnormOFF,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFOFF(:,:,Z),lb,ub,options),...
                     1:length(InclUnits),'UniformOutput',0);
                 thisparamsOFF = cat(1,thisparamsOFF{:});
+                resnormOFF = cat(1,resnormOFF{:});
+
                 % predicted values
-                pred = arrayfun(@(Z) D2GaussFunctionRot(thisparamsOFF(Z,:),cat(3,X,Y)),1:length(InclUnits),'UniformOutput',0);
-                pred = cat(3,pred{:});
+%                 resnormOFF = sum(residual.^2,1);
+%                 
                 
-                % residual
-                residual = reshape(RFOFF-pred,[],length(InclUnits))./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
-                resnormOFF = sum(residual.^2,1);
-                
-                
-                %
-                % %                 unitid=95
-                %                 thisparams = thisparamsboot;
-                %                 figure;
-                %                 subplot(2,2,1)
-                %                 imagesc(xwidth,yheight,pred(:,:,unitid))
-                %                 hold on
-                %                 ellipse(thisparams(unitid,3),thisparams(unitid,5),-thisparams(unitid,6),thisparams(unitid,2),thisparams(unitid,4),'g')
-                %                 title('predicted')
-                %
-                %                 subplot(2,2,2)
-                %                 imagesc(xwidth,yheight,RFAll(:,:,unitid))
-                %                 hold on
-                %                 ellipse(thisparams(unitid,3),thisparams(unitid,5),-thisparams(unitid,6),thisparams(unitid,2),thisparams(unitid,4),'g')
-                %                 title('actual')
-                %
-                %                 subplot(2,2,3)
-                %                 imagesc(xwidth,yheight,reshape(residual(:,unitid).^2,newY,newX))
-                %                 hold on
-                %                 ellipse(thisparams(unitid,3),thisparams(unitid,5),-thisparams(unitid,6),thisparams(unitid,2),thisparams(unitid,4),'g')
-                %                 title('residual')
-                % % %
-                % %
-                
-                % figure;
-                % for uid=1:length(InclUnits)
-                %     imagesc(RFAll(:,:,uid))
-                %     pause(0.2)
-                % end
+%                 
+%                 %                 unitid=95
+%                                 thisparams = thisparamsboot;
+%                                 figure;
+%                                 subplot(2,2,1)
+%                                 imagesc(xwidth,yheight,pred(:,:,unitid))
+%                                 hold on
+%                                 ellipse(thisparams(unitid,3),thisparams(unitid,5),-thisparams(unitid,6),thisparams(unitid,2),thisparams(unitid,4),'g')
+%                                 title('predicted')
+%                 
+%                                 subplot(2,2,2)
+%                                 imagesc(xwidth,yheight,RFAll(:,:,unitid))
+%                                 hold on
+%                                 ellipse(thisparams(unitid,3),thisparams(unitid,5),-thisparams(unitid,6),thisparams(unitid,2),thisparams(unitid,4),'g')
+%                                 title('actual')
+%                 
+%                                 subplot(2,2,3)
+%                                 imagesc(xwidth,yheight,reshape(residual(:,unitid).^2,newY,newX))
+%                                 hold on
+%                                 ellipse(thisparams(unitid,3),thisparams(unitid,5),-thisparams(unitid,6),thisparams(unitid,2),thisparams(unitid,4),'g')
+%                                 title('residual')
+%                 % %
+%                 %
+%                 
+%                 figure;
+%                 for uid=1:length(InclUnits)
+%                     imagesc(RFAll(:,:,uid))
+%                     pause(0.2)
+%                 end
                 
                 %% Repeat whole thing 1000 times (randomized!) to generate H0-distribution
                 resnormbootall = nan(nboot,length(InclUnits)); %all, on, off
@@ -643,6 +651,17 @@ for midx = 1:length(MiceOpt)
                     RFAll = fillmissing(RFAll,'spline');
                     RFON = fillmissing(RFON,'spline');
                     RFOFF = fillmissing(RFOFF,'spline');
+
+                    % Z-score
+                    RFAll = reshape(RFAll,newY*newX,[]);
+                    RFAll = reshape((RFAll-nanmean(RFAll,1))./nanstd(RFAll,[],1),newY,newX,[]);
+
+                    RFON = reshape(RFON,newY*newX,[]);
+                    RFON = reshape((RFON-nanmean(RFON,1))./nanstd(RFON,[],1),newY,newX,[]);
+
+                    RFOFF = reshape(RFOFF,newY*newX,[]);
+                    RFOFF = reshape((RFOFF-nanmean(RFOFF,1))./nanstd(RFOFF,[],1),newY,newX,[]);
+            
                     % Fit best parameters to all clusters
                     x0 = [1,0,15,0,15,0]; % Initial guess [Amplitude, x0, sigmax, y0, sigmay, angel(rad)]
                     x0 = repmat(x0,[length(InclUnits),1]);
@@ -650,40 +669,24 @@ for midx = 1:length(MiceOpt)
                     x0(:,2) = X(id);
                     x0(:,4) = Y(id);
                     try
+                        %All
                         [thisparamsboot,restmp,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFAll(:,:,Z),lb,ub,options),...
                             1:length(InclUnits),'UniformOutput',0);
+                        resnormbootall(bootid,:) = cat(1,restmp{:});
+
                         thisparamsboot = cat(1,thisparamsboot{:});
-                        % predicted values
-                        pred = arrayfun(@(Z) D2GaussFunctionRot(thisparamsboot(Z,:),cat(3,X,Y)),1:length(InclUnits),'UniformOutput',0);
-                        pred = cat(3,pred{:});
+
                         
-                        % residual
-                        residual = reshape(RFAll-pred,[],length(InclUnits))./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
-                        % RFs
-                        resnormbootall(bootid,:) = sum(residual.^2,1);
-                        
-                        
+                        % OFF
                         x0 = thisparamsboot; %replace initial parameters to save time
-                        [thisparamsboot,~,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFON(:,:,Z),lb,ub,options),...
+                        [thisparamsboot,restmp,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFON(:,:,Z),lb,ub,options),...
                             1:length(InclUnits),'UniformOutput',0);
-                        % predicted values
-                        pred = arrayfun(@(Z) D2GaussFunctionRot(thisparamsboot{Z},cat(3,X,Y)),1:length(InclUnits),'UniformOutput',0);
-                        pred = cat(3,pred{:});
-                        
-                        % residual
-                        residual = reshape(RFON-pred,[],length(InclUnits))./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
-                        resnormbooton(bootid,:) = sum(reshape(residual,[],length(InclUnits)).^2,1);
-                        
-                        [thisparamsboot,~,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFOFF(:,:,Z),lb,ub,options),...
+                        resnormbooton(bootid,:)  = cat(1,restmp{:});
+                        % OFF
+                        [thisparamsboot,restmp,~,~] = arrayfun(@(Z) lsqcurvefit(@D2GaussFunctionRot,x0(Z,:),cat(3,X,Y),RFOFF(:,:,Z),lb,ub,options),...
                             1:length(InclUnits),'UniformOutput',0);
-                        % predicted values
-                        pred = arrayfun(@(Z) D2GaussFunctionRot(thisparamsboot{Z},cat(3,X,Y)),1:length(InclUnits),'UniformOutput',0);
-                        pred = cat(3,pred{:});
-                        
-                        % residual
-                        residual = reshape(RFOFF-pred,[],length(InclUnits))./nanmax(reshape(pred,[],length(InclUnits)),[],1); %Divide by amplitude (to make sure higher amplitudes in the model are not punished!)
-                        resnormbootoff(bootid,:) = sum(reshape(residual,[],length(InclUnits)).^2,1);
-                        
+                        resnormbootoff(bootid,:) = cat(1,restmp{:});
+                                         
                     catch ME
                         disp(ME)
                     end
@@ -809,7 +812,7 @@ for midx = 1:length(MiceOpt)
                 subplot(4,2,[1:2])
                 for unitid=1:length(InclUnits)
                     
-                    if pvalsON(unitid)>0.05
+                    if pvalsON(unitid)>0.1
                         continue
                     end
                     h=ellipse(thisparamsON(unitid,3),thisparamsON(unitid,5),-thisparamsON(unitid,6),thisparamsON(unitid,2),thisparamsON(unitid,4));
@@ -825,7 +828,7 @@ for midx = 1:length(MiceOpt)
                 subplot(4,2,[3:4])
                 for unitid=1:length(InclUnits)
                     
-                    if pvalsOFF(unitid)>0.05
+                    if pvalsOFF(unitid)>0.1
                         continue
                     end
                     h=ellipse(thisparamsOFF(unitid,3),thisparamsOFF(unitid,5),-thisparamsOFF(unitid,6),thisparamsOFF(unitid,2),thisparamsOFF(unitid,4));
@@ -841,7 +844,7 @@ for midx = 1:length(MiceOpt)
                 subplot(4,2,[5:6])
                 for unitid=1:length(InclUnits)
                     
-                    if pvalsAll(unitid)>0.05
+                    if pvalsAll(unitid)>0.1
                         continue
                     end
                     h=ellipse(thisparamsAll(unitid,3),thisparamsAll(unitid,5),-thisparamsAll(unitid,6),thisparamsAll(unitid,2),thisparamsAll(unitid,4));
