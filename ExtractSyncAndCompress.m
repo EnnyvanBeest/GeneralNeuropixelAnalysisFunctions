@@ -27,12 +27,14 @@ end
 % 3. Upload everything (.cbin, meta and sync file) except raw .bin to server
 % 4. Shut down computer (optionally)
 % OR, in the case the .cbin file already exists locally
-% 1. Check whether data is copied to server already (compare sizes etc.)
+% 1. Check whether data is copied to server already (compare sizes etc.),
+% and is cloned to the clone of server
 % 2. Check when this was done. if >xclone days, delete the local copy
 % After looping, shut down the computer optionally
 addpath(genpath(fileparts(mfilename('fullpath')))) % Add subdirectories
 LocalDir = 'E:\spikeglx_recordings\' % This is your local directory. The assumption is that all data here will have to be compressed and moved to the server
 ServerDir = '\\zaru.cortexlab.net\Subjects\'
+CloneServerDir = '\\zaruclone.cortexlab.net\Subjects\'
 XCloneDays = 2; % The number of days on the server after which we can assume a clone has been made
 TurnOffDesktop = 1; % Turn off this PC after running the script
 
@@ -57,6 +59,8 @@ for fid = 1:length(localEphysFiles)
     thisSubj = fileParts{find(cell2mat(cellfun(@(X) length(X)==5,fileParts,'Uni',0)))};
 
     EphysServerFolder = strrep(localEphysFiles(fid).folder,LocalDir,fullfile(ServerDir,thisSubj,thisDate,'ephys\'));
+    EphysServerFolderClone = strrep(localEphysFiles(fid).folder,LocalDir,fullfile(CloneServerDir,thisSubj,thisDate,'ephys\'));
+
     if ~exist(EphysServerFolder)
         mkdir(EphysServerFolder) % Create ephys directory on server if not yet exists
     end
@@ -72,23 +76,27 @@ for fid = 1:length(localEphysFiles)
         % Check the local version
         LocalFile = dir(fullfile(LocalDir,'**',cbinfiles.name));
 
-        Ok2DeleteLocal = 1;
-        % Compare bytes
-        if LocalFile.bytes ~= cbinfiles.bytes
-            Ok2DeleteLocal = 0;
-            disp('What''s happening?!')
-            keyboard
-        end
+        % Is it also already on clone??
+        cbinfilesClone = dir(fullfile(EphysServerFolderClone,'**\*ap*.cbin'));
+        if ~isempty(cbinfilesClone)
+            Ok2DeleteLocal = 1;
+            % Compare bytes
+            if LocalFile.bytes ~= cbinfilesClone.bytes || LocalFile.bytes ~= cbinfiles.bytes 
+                Ok2DeleteLocal = 0;
+                disp('What''s happening?!')
+                keyboard
+            end
 
-        % Check how long cbin file is already on server
-        if duration(datetime('now')-datetime(cbinfiles.date))<duration(XCloneDays*24,0,0)
-            Ok2DeleteLocal = 0;
-            disp(['Copied to server less than ' num2str(XCloneDays) ' days, do not yet delete local copy...'])
-        end
+            % Check how long cbin file is already on server
+            if duration(datetime('now')-datetime(cbinfiles.date))<duration(XCloneDays*24,0,0)
+                Ok2DeleteLocal = 0;
+                disp(['Copied to server less than ' num2str(XCloneDays) ' days, do not yet delete local copy...'])
+            end
 
-        if Ok2DeleteLocal % Delete local copy
-            disp(['All seems good, delete local copy...'])
-            rmdir(LocalFile.folder, 's')
+            if Ok2DeleteLocal % Delete local copy
+                disp(['All seems good, delete local copy...'])
+                rmdir(LocalFile.folder, 's')
+            end
         end
 
     else % This is the compress & copy loop
