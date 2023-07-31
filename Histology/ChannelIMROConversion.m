@@ -1,10 +1,6 @@
-function channelPos = ChannelIMROConversion(datapath,draw)
+function channelPos = ChannelIMROConversion(datapath,drawthis)
 %Extract actual channelPositions from metafile
 
-% NP 2.0 MS (4 shank), probe type 24 electrode positions
-vSep = 15;      % in um
-hSep = 32;
-shankSep = 250;
 
 % Read IMRO from meta files
 if nargin==0
@@ -41,6 +37,25 @@ LayOut = cellfun(@(X) str2num(X),LayOut,'UniformOutput',0);
 nShanks = LayOut{1};
 nCols = LayOut{2};
 nChan = LayOut{3};
+if nChan>length(Shankmap)
+    nChan = length(Shankmap)
+end
+
+if nShanks==1
+    
+    % NP 1_phase 3B
+    vSep = 20;      % in um
+    hSep = 15;
+    shankSep = 0;
+elseif nShanks == 4
+    % NP 2.0 MS (4 shank), probe type 24 electrode positions
+    vSep = 15;      % in um
+    hSep = 32;
+    shankSep = 250;
+    
+else
+    disp('No layout known')
+end
 
 % Read channel positions - stand for shank number, column, and row
 % (channel)
@@ -62,13 +77,13 @@ for shid = 1:nShanks
         end
     end
 end
-if draw
+if drawthis
 figure('name',['Probe Layout ' datapath])
 scatter(xpos,ypos,4,[0 0 0],'filled')
 hold on
-scatter(Shank*shankSep+Col*hSep,Row*vSep,4,[0 0 1],'filled')
+scatter(Shank*shankSep+Col*hSep,Row*vSep,4,draw,'filled')
 
-xlim([-shankSep nShanks*shankSep])
+xlim([-shankSep-0.5 nShanks*shankSep+0.5])
 end
 % Make channelMapToPos for conversion
 channelPos = nan(length(Shank),2);

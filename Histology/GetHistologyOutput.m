@@ -1,5 +1,6 @@
 histodone=0;
 histoflag = 0;
+Depth2AreaPerUnit = [];
 if ~exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
     mkdir(fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe))
 end
@@ -18,6 +19,14 @@ if ~histodone %Just in case it's not done yet
     histofile = dir(fullfile(myKsDir,'channel_locations.json'));
     if isempty(histofile)
         histofile = dir(fullfile(myKsDir,'*.csv'));
+        if isempty(histofile)
+            % Try the histology folder 
+            histofile = dir(fullfile(HistoFolder,MiceOpt{midx},'ProbeTracks',thisdate,thisprobe,'*.csv'));
+        end
+        if isempty(histofile)
+            % Maybe chronic?
+            histofile = dir(fullfile(HistoFolder,MiceOpt{midx},'ProbeTracks',thisprobe,'*.csv'));
+        end
         if length(histofile)>1
             disp('Detecting multiple files... npix2 probe?')
         end

@@ -9,13 +9,12 @@ SaveRFDir = SaveDir
 abortsession = 0;
 nboot = 100;
 drawthis = 1;
+OriSetting = PrepareClusInfoparams;
+
 clear Depth2AreaPerUnit
 %% Automated
 clear DateOpt
-for idx = 1:length(DataDir)
-    DateOpt{idx} = cellfun(@(X) dir(fullfile(DataDir{idx},X,'*-*')),MiceOpt(DataDir2Use==idx),'UniformOutput',0);
-end
-DateOpt = cat(2,DateOpt{:});
+DateOpt = arrayfun(@(X) dir(fullfile(DataDir{DataDir2Use(X)},MiceOpt{X},'*-*')),1:length(MiceOpt),'UniformOutput',0);
 DateOpt = cellfun(@(X) X([X.isdir]),DateOpt,'UniformOutput',0);
 DateOpt = cellfun(@(X) {X.name},DateOpt,'UniformOutput',0);
 for midx = 1:length(MiceOpt)
@@ -24,6 +23,9 @@ for midx = 1:length(MiceOpt)
         % Within folders, look for 'RF mapping sessions'
         thisdate = Dates4Mouse{didx};
         subsess = dir(fullfile(DataDir{DataDir2Use(midx)},MiceOpt{midx},Dates4Mouse{didx}));
+        if isempty(subsess)
+            continue
+        end
         subsess(1:2) = []; %remove '.' and '..'
         flag = 0;
         RFsess = [];
@@ -76,12 +78,12 @@ for midx = 1:length(MiceOpt)
             thisses = RFsess{sesidx};
             
             %% which probes?
-            myKsDir = fullfile(LocalDir,MiceOpt{midx});
+            myKsDir = fullfile(KilosortDir,MiceOpt{midx});
             subksdirs = dir(fullfile(myKsDir,'Probe*')); %This changed because now I suddenly had 2 probes per recording
             
             if strcmp(ProbeType{midx},'2_4S') && ~isempty(subksdirs) % These are my chronic mice, one dataset per mouse
                 
-                myKsDir = fullfile(LocalDir,MiceOpt{midx});
+                myKsDir = fullfile(KilosortDir,MiceOpt{midx});
                 subksdirs = dir(fullfile(myKsDir,'Probe*')); %This changed because now I suddenly had 2 probes per recording
                 if length(subksdirs)<1
                     clear subksdirs
@@ -89,7 +91,7 @@ for midx = 1:length(MiceOpt)
                     subksdirs.name = 'Probe0';
                 end
             else
-                myKsDir = fullfile(LocalDir,MiceOpt{midx},thisdate);
+                myKsDir = fullfile(KilosortDir,MiceOpt{midx},thisdate);
                 subksdirs = dir(fullfile(myKsDir,'Probe*')); %This changed because now I suddenly had 2 probes per recording
                 if length(subksdirs)<1
                     clear subksdirs
@@ -114,7 +116,7 @@ for midx = 1:length(MiceOpt)
                     if ~RedoAfterClustering || exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisses,thisprobe,'CuratedResults.mat'))
                         continue
                     elseif RedoAfterClustering
-                        myKsDir = fullfile(LocalDir,MiceOpt{midx},thisdate,thisprobe);
+                        myKsDir = fullfile(KilosortDir,MiceOpt{midx},thisdate,thisprobe);
                         myClusFile = dir(fullfile(myKsDir,'cluster_info.tsv'));
                         if isempty(myClusFile)
                             disp('This data is not yet curated with phy!!')
@@ -233,7 +235,7 @@ for midx = 1:length(MiceOpt)
                             if countimg > length(SS{tridx}.ImageTextures)
                                 xlim([Actualtime(tp-500) Actualtime(tp+500)])
                                 if exist('h')
-                                    delete(h)
+                                    clear h
                                 end
                                 h=line([Actualtime(tp) Actualtime(tp)],get(gca,'ylim'),'color',[1 0 0],'LineStyle','--');
                                 
@@ -287,17 +289,20 @@ for midx = 1:length(MiceOpt)
                 histoflag = 0;
                 NewHistologyNeeded = 0;
                 myKsDir = fullfile(subksdirs(probeid).folder,subksdirs(probeid).name);
-                if ~isdir(myKsDir)
+                % Check for multiple subfolders?
+                subsesopt = dir(fullfile(myKsDir,'**','channel_positions.npy'));
+                subsesopt = unique({subsesopt(:).folder});
+                if isempty(subsesopt)
+                    disp(['No data found in ' myKsDir ', continue...'])
                     continue
                 end
-                
                 %Saving directory
                 thisprobe = subksdirs(probeid).name;
                 if ~Redo && exist(fullfile(SaveRFDir,MiceOpt{midx},thisdate,thisses,thisprobe,'RFData.mat'))
                     if ~RedoAfterClustering || exist(fullfile(SaveDir,MiceOpt{midx},thisdate,thisses,thisprobe,'CuratedResults.mat'))
                         continue
                     elseif RedoAfterClustering
-                        myKsDir = fullfile(LocalDir,MiceOpt{midx},thisdate,thisprobe);
+                        myKsDir = fullfile(KilosortDir,MiceOpt{midx},thisdate,thisprobe);
                         myClusFile = dir(fullfile(myKsDir,'cluster_info.tsv'));
                         if isempty(myClusFile)
                             disp('This data is not yet curated with phy!!')
@@ -334,12 +339,25 @@ for midx = 1:length(MiceOpt)
                 imecSR = 1./lfpFs;
                 nChansInFile = strsplit(Imecmeta.acqApLfSy,',');  % neuropixels phase3a, from spikeGLX
                 nChansInFile = str2num(nChansInFile{1})+1; %add one for sync
-                
+
                 %% Get cluster information
                 clear params
-                params.loadPCs=true;
-                params.thisdate = thisdate;
-                PrepareClusInfo
+
+                PrepareClusInfoparams.thisdate = thisdate;
+                PrepareClusInfoparams.SaveDir = fullfile(SaveDir,MiceOpt{midx},thisdate,thisprobe);
+                PrepareClusInfoparams.UnitMatch = 0; %unnecessary at this stage
+                try
+                    [clusinfo, sp, Params] = LoadPreparedClusInfo(subsesopt,PrepareClusInfoparams);
+                catch ME
+                    disp(ME)
+                    PrepareClusInfoparams = PrepareClusInfo(subsesopt,PrepareClusInfoparams)
+                    [clusinfo, sp, Params] = LoadPreparedClusInfo(subsesopt,PrepareClusInfoparams);
+
+                end
+                % This extracts the parameters within clusinfo and sp
+                % struct for further analysis
+                ExtractFields({sp,clusinfo})
+           
                 
                 %% Get Histology output
                 if strcmp(ProbeType{midx},'2_4S')
@@ -355,8 +373,12 @@ for midx = 1:length(MiceOpt)
                 thisdate = Dates4Mouse{didx}; % Reassign thisdate
                 
                 %% load synchronization data
-                SyncKSDataToTimeline
-                
+                try
+                    SyncKSDataToTimeline
+                catch
+                    disp(['Check sync dat for ' MiceOpt{midx} thisdate thisses thisprobe] )
+                    continue
+                end
                 %if necessary
                 if syncchanmissing % There were some sessions where the clock was outputted from imec and this signal was also written on flipper. Try to extract that, combined with neuronal data
                     syncchanmissingTrySyncAgain
@@ -368,6 +390,7 @@ for midx = 1:length(MiceOpt)
                     warning('No Spikes in this session... continue')
                     continue
                 end
+                Good_IDx = find(Good_ID & RecSesID'==recordingsessionidx);
                 nclus = length(Good_IDx);
                 if nclus < 2
                     disp('Less than 2 good units, skip...')
@@ -376,7 +399,7 @@ for midx = 1:length(MiceOpt)
 
                 %% Divide spike times in trials and clusters
 
-                SpikeCountPerTP = arrayfun(@(X) histcounts(spikeTimesCorrected(spikeCluster'==X),newtimebins),cluster_id(Good_IDx),'UniformOutput',0);
+                SpikeCountPerTP = arrayfun(@(X) histcounts(spikeTimesCorrected(clu'==X),newtimebins),cluster_id(Good_IDx),'UniformOutput',0);
                 SpikeCountPerTP = cat(1,SpikeCountPerTP{:})';
 %                 % Prepare spikecounts per unit according to actualtime X units
 %                 SpikeCountPerTP = zeros(length(newtimevec),length(Good_IDx));
@@ -932,27 +955,72 @@ for midx = 1:length(MiceOpt)
         end
     end
     close all
+    %% Load unitmatch
+    PrepareClusInfoparams=OriSetting;
+    if PrepareClusInfoparams.UnitMatch %% USE UNIQUE_ID
+        TmpFile = matfile(fullfile(SaveDir,MiceOpt{midx},'UnitMatch','UnitMatch.mat'));
+        MatchTable = TmpFile.MatchTable;
+        UMParam = TmpFile.UMparam;
+        AllKSDir = UMParam.KSDir;
+        UniqueIDConversion = TmpFile.UniqueIDConversion;
+        if UMParam.GoodUnitsOnly
+            GoodId = logical(UniqueIDConversion.GoodID);
+        else
+            GoodId = true(1,length(UniqueIDConversion.GoodID));
+        end
+        UniqueID = UniqueIDConversion.UniqueID(GoodId);
+        OriID = UniqueIDConversion.OriginalClusID(GoodId);
+        OriIDAll = UniqueIDConversion.OriginalClusID;
+        recses = UniqueIDConversion.recsesAll(GoodId);
+        recsesall = UniqueIDConversion.recsesAll;
+    else
+        keyboard
+        adduid=0;
+    end
     %% Load all results to make big overview per mouse
     AllRFDat=[];
-    for didx = 1:length(Dates4Mouse)
-        % Within folders, look for 'RF mapping sessions'
-        AllRFDatFiles = dir(fullfile(SaveRFDir,MiceOpt{midx},'*','*','*','RFData.mat'));
-        for idx=1:length(AllRFDatFiles)
-            % Load Data
-            tmp = load(fullfile(AllRFDatFiles(idx).folder,AllRFDatFiles(idx).name));
-            
-            % Save in big struct
-            if isempty(AllRFDat)
-                
-                AllRFDat = tmp.RFInfo;
-                AllRFDat = tall(AllRFDat); %Make tall to prevent memory issues
-                
-            else
-                % Concatenate
-                AllRFDat = cat(1,AllRFDat,tmp.RFInfo);
-                
+    % Within folders, look for 'RF mapping sessions'
+    AllRFDatFiles = dir(fullfile(SaveRFDir,MiceOpt{midx},'*','*','*','RFData.mat'));
+    for idx=1:length(AllRFDatFiles)
+        % Load Data
+        tmp = load(fullfile(AllRFDatFiles(idx).folder,AllRFDatFiles(idx).name));
+        NameParts = strsplit(AllRFDatFiles(idx).folder,'\');
+        thisdate = NameParts{find(ismember(NameParts,MiceOpt{midx}))+1};
+        thisprobe = NameParts{end};
+        thisSes = NameParts{end-1};
+        % Add UniqueID
+        if PrepareClusInfoparams.UnitMatch %% USE UNIQUE_ID from UnitMatch
+            rechere = find(cellfun(@(X) contains(X,thisdate) & contains(X,thisprobe),AllKSDir));
+            if length(rechere)>1  % Select correct session
+                removeidx = zeros(1,length(rechere));
+                for id = 1:length(rechere)
+                    tmpfile = matfile(fullfile(AllKSDir{rechere(id)},'PreparedData.mat'));
+                    clusinfo = tmpfile.clusinfo;
+                    if sum(clusinfo.Good_ID) ~= length(tmp.RFInfo.ClusID) || any(clusinfo.cluster_id(logical(clusinfo.Good_ID))~=tmp.RFInfo.ClusID)
+                        removeidx(id)=1;
+                    end
+                end
+                rechere(find(removeidx))=[];
             end
-            
+            if isempty(rechere)
+                continue
+            end
+            tmp.RFInfo.UniqueID = cell2mat(arrayfun(@(X) UniqueID(recses==rechere & OriID==X),tmp.RFInfo.ClusID,'Uni',0));
+            tmp.RFInfo.RecSesID = repmat(rechere,length(tmp.RFInfo.UniqueID),1);
+        else
+            keyboard
+            tmp.RFInfo.UniqueID = (1:length(tmp.RFInfo.ClusID))+adduid;
+            if pib==1
+                adduid = adduid+length(tmp.RFInfo.ClusID);
+            end
+        end
+        % Save in big struct
+        if isempty(AllRFDat)
+            AllRFDat = tmp.RFInfo;
+            %                 AllRFDat = tall(AllRFDat); %Make tall to prevent memory issues
+        else
+            % Concatenate
+            AllRFDat = cat(1,AllRFDat,tmp.RFInfo);
         end
     end
     
@@ -961,6 +1029,7 @@ for midx = 1:length(MiceOpt)
     Shank = gather(AllRFDat.Shank);
     paramsAll = gather(AllRFDat.paramsAll);
     pvalAll = gather(AllRFDat.PvalsAll);
+    UniqueID = gather(AllRFDat.UniqueID);
     [depth,unitsort] = sort(depth,'ascend');
     col4this = copper(length(depth));
     yticks = [];
@@ -980,8 +1049,7 @@ for midx = 1:length(MiceOpt)
     for unitid=1:length(depth)
         if pvalAll(unitsort(unitid))>0.05
             continue
-        end
-        
+        end        
         h=ellipse(paramsAll(unitsort(unitid),3),paramsAll(unitsort(unitid),5),-paramsAll(unitsort(unitid),6),paramsAll(unitsort(unitid),2),paramsAll(unitsort(unitid),4));
         h.Color = col4this(unitid,:);
         h.LineWidth=2;
@@ -1006,8 +1074,257 @@ for midx = 1:length(MiceOpt)
     saveas(gcf,fullfile(SaveRFDir,MiceOpt{midx},['RFOverview.fig']))
     saveas(gcf,fullfile(SaveRFDir,MiceOpt{midx},['RFOverview.bmp']))
     
+
+      
+    %% Distance in RF center against matching Probability
+    % Create RF distance for MatchTable
+    RFDist = nan(height(MatchTable),1);
+    groupvec = zeros(height(MatchTable),1);
+    for rid = 1:height(MatchTable)
+        if MatchTable.CentroidDist(rid)==0
+            continue
+        end
+        id1 = find(AllRFDat.ClusID==MatchTable.ID1(rid) & AllRFDat.RecSesID == MatchTable.RecSes1(rid));
+        id2 = find(AllRFDat.ClusID==MatchTable.ID2(rid) & AllRFDat.RecSesID == MatchTable.RecSes2(rid));
+        %         [Amplitude, x0, sigmax, y0, sigmay, angel(rad)]
+        if isempty(id1) || isempty(id2)
+            continue
+        end
+                
+        if AllRFDat.PvalsAll(id1)>0.05 || AllRFDat.PvalsAll(id2)>0.05
+            continue
+        end
+        % RFcenter Distance
+        RFDist(rid) = sqrt(nansum((AllRFDat.paramsAll(id1,[2,4]) - AllRFDat.paramsAll(id2,[2,4])).^2));
+        if id1 == id2
+            groupvec(rid) = 3; % Own match
+             if RFDist(rid) ~= 0
+                 keyboard
+             end
+        elseif MatchTable.MatchProb(rid)>0.5 
+            groupvec(rid) = 2; % High probability (so match)
+        else
+            groupvec(rid) = 1; % nonmatch      
+        end
+    end
+    MatchTable.RFDist = RFDist;
+
+    % Save this to the table
+    TmpFile.Properties.Writable = true;
+    try
+    TmpFile.MatchTable = MatchTable; % Overwrite
+        TmpFile.Properties.Writable = false;
+
+    catch ME
+        TmpFile.Properties.Writable = false;
+        save(fullfile(SaveDir,MiceOpt{midx},'UnitMatch','UnitMatch.mat'),'MatchTable','-append')
+    end
+
+    %%
+    colvec = [0.5 0.5 0.5; 0 1 0; 1 0 0]; %Non match, Match, same unit (within day)
+
+    figure('name','RFDist with Match Probability')
+    clear h
+    subplot(1,3,1)
+    edges = [0:1:50];
+    valvec = 0.5:1:49.5;
+    hold on
+    for id =1:2
+        hc = histcounts(MatchTable.RFDist(groupvec==id),edges);
+        hc = hc./sum(hc);
+        h(id) = plot(valvec,hc,'color',colvec(id,:));
+    end
+    xlabel('RF Distance')
+    ylabel('Probability')
+    legend(h(:),{'Non-match','Match'})
+    xlim([0 50])
+    makepretty
+
+    subplot(1,3,2)
+    hold on
+    for id =1:2
+        hc = histcounts(MatchTable.EucledianDistance(groupvec==id),edges);
+        hc = hc./sum(hc);
+        h(id) = plot(valvec,hc,'color',colvec(id,:));
+    end
+    xlabel('Eucledian distance (um)')
+    ylabel('Probability')
+    makepretty
+
+    % 2D Histogram
+    subplot(1,3,3)
+    hold on
+    for id =1:2
+        h(id) = scatter(MatchTable.EucledianDistance(groupvec==id),MatchTable.RFDist(groupvec==id),4,colvec(id,:),'filled')
+    end
+    xlabel('Eucledian distance (um)')
+    ylabel('RF Distance')
+    ylim([0 50])
+    makepretty
+
+    figure('name','RFDist vs CentroidDist vs MP')
+    hold on
+    for id = 1:2
+        h(id) = histogram2(MatchTable.EucledianDistance(groupvec==id),MatchTable.RFDist(groupvec==id),edges,edges,'FaceColor',colvec(id,:),'EdgeColor','none','FaceAlpha',0.5)     ;
+    end
+    xlabel('Eucledian distance (um)')
+    ylabel('RFDist')
+    legend(h(:),'Non-matches','Matches')
+
+    %% dRF = CentroidDist
+    figure('name','Distribution normalized by number of units in that centroid distance bin');
+    subplot(2,2,1)
+    idx = ismember(groupvec,[1])&MatchTable.RFDist<50 & MatchTable.EucledianDistance<50;
+    [valuesNM, C] = hist3([MatchTable.EucledianDistance(idx) MatchTable.RFDist(idx)],[20 31]);
+    valuesNM = valuesNM./sum(valuesNM,2); % Normalize
+    imagesc(C{1},C{2},valuesNM',[0 0.1])
+    xlabel('Eucledian Distance')
+    ylabel('RF Dist')
+    colormap hot
+    title('Non Matches')
+    colorbar
+    makepretty
+    freezeColors
+
+    subplot(2,2,2)
+    idx = ismember(groupvec,[2])&MatchTable.RFDist<50 & MatchTable.EucledianDistance<50;
+    [valuesM, C] = hist3([MatchTable.EucledianDistance(idx) MatchTable.RFDist(idx)],[20 31]);
+    valuesM = valuesM./sum(valuesM,2); % Normalize
+    imagesc(C{1},C{2},valuesM',[0 0.1])
+    xlabel('Eucledian Distance')
+    ylabel('RF Dist')
+    colormap hot
+    title('Matches')
+    colorbar
+    makepretty
+    freezeColors
+
+    subplot(2,2,3)
+    idx = ismember(groupvec,[1,2])&MatchTable.RFDist<50 & MatchTable.EucledianDistance<50;
+    [values, C] = hist3([MatchTable.EucledianDistance(idx) MatchTable.RFDist(idx)],[20 31]);
+    values = values./sum(values,2); % Normalize
+    imagesc(C{1},C{2},values',[0 0.1])
+    xlabel('Eucledian Distance')
+    ylabel('RF Dist')
+    colormap hot
+    title('All Data')
+    colorbar
+    makepretty
+    freezeColors
+
+    subplot(2,2,4)
+    imagesc(C{1},C{2},(valuesM-valuesNM)',[-0.1 0.1])
+    xlabel('Eucledian Distance')
+    ylabel('RF Dist')
+    colormap redblue
+    title('Differences Matches - Non Matches')
+    colorbar
+    makepretty
+
+    %% Track RFs over days
+    nExample = 5;
+    CurFig = figure('name',['Overview RFs Tracked Neurons']);
+    idx = find(MatchTable.EucledianDistance<30&groupvec==2)
+    exampleNeurons = datasample(idx,nExample)
+    for id = 1:length(exampleNeurons)
+        Id2take = MatchTable.UID1(exampleNeurons(id))
+        figure(CurFig)
+        %Normalize pvalcorr
+        uidx = find(ismember(UniqueID,Id2take)); %
+        col4this = jet(length(uidx));
+
+        subplot(ceil(sqrt(nExample)),round(sqrt(nExample)),id)
+        for uid2 = 1:length(uidx)
+            
+            h=ellipse(paramsAll(uidx(uid2),3),paramsAll(uidx(uid2),5),-paramsAll(uidx(uid2),6),paramsAll(uidx(uid2),2),paramsAll(uidx(uid2),4));
+            h.Color = col4this(uid2,:);
+            h.LineWidth=2;
+            if pvalAll(uidx(uid2))>0.05
+                h.LineStyle = '--';
+            end
+
+            hold on
+        end
+        xlim([-200 200])
+        ylim([-50 50])
+        title([num2str(UniqueID(unitid))])
+        xlim([-200 200])
+        ylim([-50 50])
+        box off
+        title(num2str(Id2take))
+        %                     colormap(jet)
+
+    end
+    saveas(CurFig,fullfile(SaveRFDir,MiceOpt{midx},['RFOverviewUniqueID.fig']))
+    saveas(CurFig,fullfile(SaveRFDir,MiceOpt{midx},['RFOverviewUniqueID.bmp']))
+
+
+    % Extract groups
+    WithinIdx = find((MatchTable.UID1 == MatchTable.UID2) & (MatchTable.RecSes1 == MatchTable.RecSes2)); %Within session, same unit (cross-validation)
+    MatchIdx = find((MatchTable.UID1 == MatchTable.UID2) & (MatchTable.RecSes1 ~= MatchTable.RecSes2)); %Across session, same unit (cross-validation)
+    NonMatchIdx = find((MatchTable.UID1 ~= MatchTable.UID2)); % Not the same unit
+    nclus = sqrt(height(MatchTable));
+
+    nRec = length(unique(UniqueIDConversion.recsesAll));
+    EuclDist = reshape(MatchTable.EucledianDistance,nclus,nclus);
+    SessionSwitch = arrayfun(@(X) find(recses==X,1,'first'),unique(UniqueIDConversion.recsesAll),'Uni',0);
+    SessionSwitch(cellfun(@isempty,SessionSwitch))=[];
+    SessionSwitch = [cell2mat(SessionSwitch); nclus+1];
     
-    
-    
+    figure('name','RF Scores')  
+    FingerprintCor = reshape(MatchTable.RFDist,nclus,nclus);
+   
+    subplot(1,2,1)
+    bins = min(FingerprintCor(:)):2:max(FingerprintCor(:));
+    Vector = [bins(1)+2/2:2:bins(end)-2/2];
+    hw = histcounts(FingerprintCor(WithinIdx),bins)./length(WithinIdx);
+    hm = histcounts(FingerprintCor(MatchIdx),bins)./length(MatchIdx);
+    hn = histcounts(FingerprintCor(NonMatchIdx),bins)./length(NonMatchIdx);
+%     plot(Vector,hw,'color',[0.5 0.5 0.5])
+    hold on
+    plot(Vector,hm,'color',[0 0.5 0])
+    plot(Vector,hn,'color',[0 0 0])
+    xlabel('RFDist')
+    ylabel('Proportion|Group')
+    legend('matches','non-matches','Location','best')
+    axis square
+    xlim([0 50])
+    makepretty
+
+
+    subplot(1,2,2)
+    labels = [zeros(1,numel(MatchIdx)), ones(1,numel(NonMatchIdx))];
+    scores = [FingerprintCor(MatchIdx)', FingerprintCor(NonMatchIdx)'];
+    [X,Y,~,AUC1] = perfcurve(labels,scores,1);
+    h(1) = plot(X,Y,'color',[0 0.25 0]);
+    hold all
+    labels = [zeros(1,numel(MatchIdx)), ones(1,numel(WithinIdx))];
+    scores = [FingerprintCor(MatchIdx)', FingerprintCor(WithinIdx)'];
+    [X,Y,~,AUC2] = perfcurve(labels,scores,1);
+    h(2) = plot(X,Y,'color',[0 0.5 0]);
+    labels = [zeros(1,numel(WithinIdx)), ones(1,numel(NonMatchIdx))];
+    scores = [FingerprintCor(WithinIdx)', FingerprintCor(NonMatchIdx)'];
+    [X,Y,~,AUC3] = perfcurve(labels,scores,1);
+    h(3) = plot(X,Y,'color',[0.25 0.25 0.25]);
+
+    plot([0 1],[0 1],'k--')
+    xlabel('False positive rate')
+    ylabel('True positive rate')
+    legend([h(:)],'Match vs No Match','Match vs Within','Within vs No Match','Location','best')
+    title(sprintf('RFDist AUC: %.3f, %.3f, %.3f', AUC1,AUC2,AUC3))
+    makepretty
+    axis square
+    drawnow %Something to look at while ACG calculations are ongoing
+
+    %% Example unit
+    AllKSDir = UMParam.KSDir;
+    RecSesID = UniqueIDConversion.recsesAll;
+    OriID =  UniqueIDConversion.OriginalClusID;
+    UniqueID =  UniqueIDConversion.UniqueID;
+    Id2take = 3536
+    tmp = load(fullfile(SaveDir,MiceOpt{midx},'UnitMatch','UnitMatch.mat'));
+    UMparam.VisibleSetting = 'on';
+    PlotTheseUnits_UM({find(tmp.UniqueIDConversion.UniqueID(logical(UniqueIDConversion.GoodID))==Id2take)},MatchTable,UniqueIDConversion,TmpFile.WaveformInfo,TmpFile.AllSessionCorrelations,UMparam)
+% 
 end
 

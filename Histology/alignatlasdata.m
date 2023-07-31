@@ -1,4 +1,4 @@
-function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,goodonly,surfacefirst,LFPDir,treeversion,trackcoordinates)
+function Depth2AreaPerUnit = alignatlasdata(histinfo,AllenCCFPath,sp,clusinfo,removenoise,surfacefirst,LFPDir,treeversion,trackcoordinates)
 % Enny van Beest, based on AP_histology from AJPeters & IBLAPP from Mayo
 % Faulkner
 
@@ -86,15 +86,18 @@ if nargin>7 && exist(LFPDir) && ~isempty(LFPDir)
         disp('No file found...')
         LFP_On=0;
     end
+    clear allPowerEst allPowerVar
 end
 
 %% Extract all fields in sp
 field=fieldnames(sp);
-for fn=1:length(field)
+fnidx = find(ismember(field,{'clu','st','spikeDepths','RecSes'}));
+for fn=fnidx'
     eval([field{fn} '= extractfield(sp,field{fn});'])
 end
 spikeCluster = clu;
 spikeTimes = st;
+spikeRecording = RecSes;
 
 
 %% Extract cluster info
@@ -113,20 +116,27 @@ try
 catch
     ShankID = ones(1,length(Label));
 end
-nshanks = length(unique(ShankID));
+nshanks = length(histinfo);
 spikeShank = nan(length(spikeCluster),1);
 for shid = 1:nshanks
-    spikeShank(ismember(spikeCluster,cluster_id(ShankID==shid))) = shid;
+    spikeShank(ismember(spikeCluster,cluster_id(ShankID==shid)) & ismember(RecSes,clusinfo.RecSesID(ShankID==shid))) = shid;
 end
 depth = clusinfo.depth;
 channel = clusinfo.ch;
+RecSes_ID = clusinfo.RecSesID;
 Good_ID = find(ismember(cellstr(Label),'good')); %Identify good clusters
 if isempty(Good_ID)
     Good_ID = find(ismember(Label,'g')); %Identify good clusters
 end
+try
+
+    Noise_ID = find(clusinfo.Noise_ID);
+catch
+    Noise_ID = find(~ismember(Label,'g'));
+end
 %% Select only good units to clean up MUA
-if nargin>4 && goodonly
-    spikeID = ismember(spikeCluster,Good_ID);
+if nargin>4 && removenoise
+    spikeID = ~ismember(spikeCluster,Noise_ID-1); %0-indexed
 else
     spikeID = true(length(spikeCluster),1);
     try
@@ -139,7 +149,7 @@ else
         spikeID(ismember(spikeCluster,cluster_id(ismember(cellstr(Label),'noise'))))=0; %noise should not count, only MUA and good unit
     catch
         disp('This is non curated data, using only good units from kilosort output')
-        spikeID = ismember(spikeCluster,Good_ID);
+%         spikeID = ismember(spikeCluster,Good_ID);
     end
 end
 if size(spikeID,2)==1
@@ -754,9 +764,9 @@ for shid=1:nshanks
     if coordinateflag
         clustercoord = repmat({[nan,nan,nan]},1,length(cluster_id(ShankID==shid)));
         clustercoord(idx) = num2cell(newtrackcoordinates{shid}(cell2mat(tmp(idx)),:),2);
-        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid),depth(ShankID==shid),ShankID(ShankID==shid),clusterarea',clustercolor',clustercoord','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color','Coordinates'});
+        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid)',depth(ShankID==shid),ShankID(ShankID==shid),clusterarea',clustercolor',clustercoord','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color','Coordinates'});
     else
-        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid),depth(ShankID==shid),ShankID(ShankID==shid),clusterarea',clustercolor','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color'});
+        Depth2AreaPerUnit{shid} = table(cluster_id(ShankID==shid)',depth(ShankID==shid),ShankID(ShankID==shid),clusterarea',clustercolor','VariableNames',{'Cluster_ID','Depth','Shank','Area','Color'});
     end
 end
 Depth2AreaPerUnit=cat(1,Depth2AreaPerUnit{:});

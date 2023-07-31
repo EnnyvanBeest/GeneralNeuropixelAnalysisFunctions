@@ -13,14 +13,19 @@ function [lfpByChannel, allPowerEst, F, allPowerVar] = lfpBandPowerNP2(lfpFilena
 % samples 10 segments of 10 sec each to compute these things. 
 %Downsample function
 DownsampleAvg = @(y,n) nanmean(reshape([y(:); nan(mod(-numel(y),n),1)],n,[]));
-
+compressed = 0;
+if any(strfind(lfpFilename,'.cbin'))
+    compressed = 1;
+end
 if nargin==0 || ~exist(lfpFilename)
     [binName,path] = uigetfile('*.bin', 'Select Binary File');
 else
     
     [path,binName] = fileparts(lfpFilename);
-    if isempty(strfind(binName,'.bin')) %somehow it cuts the bin off
+    if ~compressed && isempty(strfind(binName,'.bin')) %somehow it cuts the bin off
         binName =[binName '.bin'];
+    elseif compressed &&  isempty(strfind(binName,'.cbin')) 
+        binName =[binName '.cbin'];
     end
 end
 
@@ -29,7 +34,7 @@ if ~isempty(freqBand) && ~iscell(freqBand)
 end
 nF = length(freqBand);
 
-nClips = 10;
+nClips = 5;
 clipDur = 10; % seconds
 
 % Parse the corresponding metafile
@@ -57,8 +62,15 @@ allPowerEstByBand = zeros(nClips, nChansInFile, nF);
 FreqNeeded = 1000;
 for n = 1:nClips
     fprintf(1, 'clip%d\n', n);
+    if  ~compressed
+        dataArray = ReadBin(sampStarts(n), nClipSamps, meta, binName, path); %This is stored in int16
+    else
+        dataArray = pyrunfile("Ephys_Reader_FromMatlab.py","chunk",...
+            datapath = strrep(fullfile(path,binName),'\','/'),start_time=sampStarts(n),end_time=sampStarts(n)+nClipSamps); %0-indexed!!
+        dataArray=uint16(dataArray);
 
-    dataArray = ReadBin(sampStarts(n), nClipSamps, meta, binName, path); %This is stored in int16
+
+    end
     % convert to double
     dataArray = double(dataArray);
     if dataType == 'A'
