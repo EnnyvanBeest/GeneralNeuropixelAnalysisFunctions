@@ -23,3 +23,5 @@ https://github.com/cortex-lab/phy
 https://github.com/cortex-lab/allenCCF
 https://github.com/brainglobe
 
+If there are issues I'll do my best to help, provided that these are easy fixes. However this toolbox is not officially maintained to be working for everyone's individual needs and my priority is doing science. On that note, if others have made improvements, please feel free to submit pull requests to make them more useful for everyone.
+
