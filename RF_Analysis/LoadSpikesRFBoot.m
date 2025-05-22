@@ -2,7 +2,7 @@
 % Load all data
 % Find available datasets (always using dates as folders)
 usehistology = 0; %if 0, just use depths, can actually help histology alignment later
-Redo = 0; % Redo in general
+Redo = 1; % Redo in general
 RedoAfterClustering = 0; %keep 0,
 %Predefine
 SaveRFDir = SaveDir

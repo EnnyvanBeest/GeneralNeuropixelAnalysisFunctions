@@ -12,10 +12,10 @@ function nptype24_imro_MixPerShank
 % Start botrow at:
 %      0    48    96   144   192   240   288   336 384 432 480 528 576 624
 %      672 720
-patternType = 2;
-shankChoice = [1,2];% [0,1,2,3]; % % 0-3, needed for patternType 0
-botRow =  [170,170];%;   [170,170,170,170;242,242,242,242];%
-nE = 192%48; %electrodes in pattern per shank %multi of 48
+patternType = 0;
+shankChoice = [3];% [0,1,2,3]; % % 0-3, needed for patternType 0
+botRow =  [24];%;   [170,170,170,170;242,242,242,242];%
+nE = 384%48; %electrodes in pattern per shank %multi of 48
 
 RID = botRow./48
 refElec = 1;     % 0 for external, 1-4 for tip reference on shank 0-3

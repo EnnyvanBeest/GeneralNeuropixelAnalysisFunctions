@@ -4,7 +4,7 @@ OriSetting = PipelineParams;
 
 % Find available datasets (always using dates as folders)
 RedoAfterClustering=0;
-Redo = 0; % Redo in general
+Redo = 1; % Redo in general
 RedoTable = 1;
 NewHistologyNeeded = 0; %Automatically to 1 after RedoAfterClustering
 %Predefine

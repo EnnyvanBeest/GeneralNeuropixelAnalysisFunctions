@@ -10,7 +10,7 @@ function nptype24_imro
 %                   shanks starting from "botRow", valid values = 0-592
 
 
-patternType = 1;
+patternType = 0;
 shankChoice = 2;   % 0-3, needed for patternType 0
 botRow =  96*6+1;     
 refElec = 1;     % 0 for external, 1-4 for tip reference on shank 0-3
